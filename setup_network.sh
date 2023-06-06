@@ -9,9 +9,8 @@ bridge_ip_address="10.10.10.40/24"
 namespace="cort0"
 namespace_ip_address="10.10.10.10/24"
 
-sudo ./create_bridge.sh "$host_phy_interface" "$bridge_ip_address" "$bridge_interface"
+sudo ./create_bridge.sh "$host_phy_interface" "$bridge_interface" "$bridge_ip_address"
 echo "Created bridge '$bridge_interface'"
-exit 0
 sudo ip netns add $namespace
 sudo ./setup_network_namespace.sh "$bridge_interface" "$bridge_ip_address" "$namespace" "$namespace_ip_address"
 echo "Setup network namespace '$namespace'"

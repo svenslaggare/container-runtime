@@ -3,18 +3,19 @@ use std::fs::File;
 use std::io::{ Write};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use log::trace;
+use log::{trace};
 
 use uuid::Uuid;
 
 mod model;
 mod spec;
+mod network;
 mod linux;
 
 use crate::spec::{BridgedNetworkSpec, NetworkSpec, RunContainerSpec, UserSpec};
 use crate::model::{ContainerRuntimeError, ContainerRuntimeResult, User};
 use crate::linux::{mount, wrap_libc_error};
+use crate::network::NetworkNamespace;
 
 fn main() {
     setup_logging().unwrap();
@@ -23,18 +24,22 @@ fn main() {
     let image_base_dir = base_dir.join("images");
     let containers_base_dir = base_dir.join("containers");
 
+    let bridge = BridgedNetworkSpec {
+        bridge_interface: "cort0".to_string(),
+        bridge_ip_address: "10.10.10.40/2".to_string(),
+        container_ip_address: "10.10.10.10/24".to_string(),
+        hostname: None
+    };
+
+    network::create_bridge("enp3s0", &bridge).unwrap();
+
     let run_container_spec = RunContainerSpec {
         image_base_dir,
         containers_base_dir,
         id: Uuid::new_v4().to_string(),
         image: "ubuntu".to_string(),
         command: vec!["/bin/bash".to_owned()],
-        network: NetworkSpec::Bridged(BridgedNetworkSpec {
-            bridge_interface: "cort0".to_string(),
-            bridge_ip_address: "10.10.10.40/2".to_string(),
-            container_ip_address: "10.10.10.10/24".to_string(),
-            hostname: None
-        }),
+        network: NetworkSpec::Bridged(bridge),
         // network: NetworkSpec::Host,
         user: Some(UserSpec::Name("ubuntu".to_owned())),
         // user: None,
@@ -67,9 +72,7 @@ fn run_container(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResul
     let mut child_stack = vec![0u8; 64 * 1024];
 
     let network_namespace = if let NetworkSpec::Bridged(bridged) = &run_container_spec.network {
-        let network_namespace = run_container_spec.network_namespace().unwrap();
-        create_network_namespace(bridged, &network_namespace)?;
-        Some(network_namespace)
+        Some(NetworkNamespace::create(run_container_spec.network_namespace().unwrap(), bridged)?)
     } else {
         None
     };
@@ -98,10 +101,6 @@ fn run_container(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResul
 
     println!("PID {} exited with status {}", pid, status);
     std::fs::remove_dir_all(run_container_spec.container_root())?;
-
-    if let Some(network_namespace) = network_namespace {
-        destroy_network_namespace(&network_namespace)?;
-    }
 
     Ok(())
 }
@@ -368,32 +367,6 @@ fn create_devices(dev_path: &Path) -> ContainerRuntimeResult<()> {
                 libc::makedev(major, minor)
             ))?;
         }
-    }
-
-    Ok(())
-}
-
-fn create_network_namespace(network: &BridgedNetworkSpec, network_namespace: &str) -> ContainerRuntimeResult<()> {
-    let result = Command::new("bash")
-        .args(["create_network_namespace.sh", &network.bridge_interface, &network.bridge_ip_address, network_namespace, &network.container_ip_address])
-        .spawn().unwrap()
-        .wait().unwrap();
-
-    if !result.success() {
-        return Err(ContainerRuntimeError::FailedToCreateNetworkNamespace);
-    }
-
-    Ok(())
-}
-
-fn destroy_network_namespace(network_namespace: &str) -> ContainerRuntimeResult<()> {
-    let result = Command::new("bash")
-        .args(["destroy_network_namespace.sh", &network_namespace])
-        .spawn().unwrap()
-        .wait().unwrap();
-
-    if !result.success() {
-        return Err(ContainerRuntimeError::FailedToCreateNetworkNamespace);
     }
 
     Ok(())

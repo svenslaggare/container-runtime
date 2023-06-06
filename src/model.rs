@@ -10,6 +10,8 @@ use crate::spec::UserSpec;
 
 #[derive(Error, Debug)]
 pub enum ContainerRuntimeError {
+    #[error("Failed to create network bridge")]
+    FailedToCreateNetworkBridge,
     #[error("Failed to create network namespace")]
     FailedToCreateNetworkNamespace,
     #[error("Failed to setup cpu cgroup: {0}")]
