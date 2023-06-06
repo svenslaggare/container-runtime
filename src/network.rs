@@ -4,11 +4,11 @@ use std::process::Command;
 use log::error;
 
 use crate::model::{ContainerRuntimeError, ContainerRuntimeResult};
-use crate::spec::BridgedNetworkSpec;
+use crate::spec::{BridgedNetworkSpec, BridgeNetworkSpec};
 
-pub fn create_bridge(physical_interface: &str, bridge: &BridgedNetworkSpec) -> ContainerRuntimeResult<()> {
+pub fn create_bridge(bridge: &BridgeNetworkSpec) -> ContainerRuntimeResult<()> {
     let result = Command::new("bash")
-        .args(["try_create_bridge.sh", physical_interface, &bridge.bridge_interface, &bridge.bridge_ip_address])
+        .args(["try_create_bridge.sh", &bridge.physical_interface, &bridge.interface, &bridge.ip_address])
         .spawn().unwrap()
         .wait().unwrap();
 

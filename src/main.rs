@@ -8,7 +8,7 @@ mod container;
 mod network;
 mod linux;
 
-use crate::spec::{BridgedNetworkSpec, NetworkSpec, RunContainerSpec, UserSpec};
+use crate::spec::{BridgedNetworkSpec, BridgeNetworkSpec, NetworkSpec, RunContainerSpec, UserSpec};
 
 fn main() {
     setup_logging().unwrap();
@@ -20,14 +20,20 @@ fn main() {
     let bridge_ip_address = Ipv4Addr::from_str("10.10.10.1").unwrap();
     let bridge_cidr = "24";
 
-    let bridge = BridgedNetworkSpec {
-        bridge_interface: "cort0".to_string(),
-        bridge_ip_address: format!("{}/{}", bridge_ip_address, bridge_cidr),
+    let bridge = BridgeNetworkSpec {
+        physical_interface: "enp3s0".to_string(),
+        interface: "cort0".to_string(),
+        ip_address: format!("{}/{}", bridge_ip_address, bridge_cidr),
+    };
+
+    network::create_bridge(&bridge).unwrap();
+
+    let bridged = BridgedNetworkSpec {
+        bridge_interface: bridge.interface.clone(),
+        bridge_ip_address: bridge.ip_address.clone(),
         container_ip_address: format!("{}/{}", network::find_free_ip_address(bridge_ip_address).unwrap(), bridge_cidr),
         hostname: None
     };
-
-    network::create_bridge("enp3s0", &bridge).unwrap();
 
     let run_container_spec = RunContainerSpec {
         image_base_dir,
@@ -35,7 +41,7 @@ fn main() {
         id: Uuid::new_v4().to_string(),
         image: "ubuntu".to_string(),
         command: vec!["/bin/bash".to_owned()],
-        network: NetworkSpec::Bridged(bridge),
+        network: NetworkSpec::Bridged(bridged),
         // network: NetworkSpec::Host,
         // user: Some(UserSpec::Name("ubuntu".to_owned())),
         user: None,

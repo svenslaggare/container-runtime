@@ -108,6 +108,13 @@ impl UserSpec {
 }
 
 #[derive(Debug, Clone)]
+pub struct BridgeNetworkSpec {
+    pub physical_interface: String,
+    pub interface: String,
+    pub ip_address: String,
+}
+
+#[derive(Debug, Clone)]
 pub enum NetworkSpec {
     Host,
     Bridged(BridgedNetworkSpec)
