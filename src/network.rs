@@ -196,12 +196,12 @@ impl FromStr for Ipv4Net {
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let mut parts = text.split("/");
         let address = parts.next().ok_or_else(|| "Expected IP address.")?;
-        let subnet_size = parts.next().ok_or_else(|| "Expected /subnet_size.")?;
+        let subnet_size = parts.next().ok_or_else(|| "Expected cidr notation.")?;
 
         let address = Ipv4Addr::from_str(address).map_err(|err| format!("Failed to parse IP address: {}", err))?;
-        let subnet_size = u16::from_str(subnet_size).map_err(|err| format!("Failed to parse subnet size: {}", err))?;
+        let subnet_cidr = u16::from_str(subnet_size).map_err(|err| format!("Failed to parse subnet mask: {}", err))?;
 
-        Ok(Ipv4Net::new(address, subnet_size))
+        Ok(Ipv4Net::new(address, subnet_cidr))
     }
 }
 
