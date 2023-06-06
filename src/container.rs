@@ -161,13 +161,7 @@ fn setup_cpu_cgroup(container_id: &str, cpu_shares: Option<i64>) -> ContainerRun
     trace!("Setup cpu group - cpu shares: {:?}", cpu_shares);
 
     let inner = || -> ContainerRuntimeResult<()> {
-        let container_cpu_cgroup_dir = Path::new("/sys/fs/cgroup/cpu").join("container_runtime").join(container_id);
-        if !container_cpu_cgroup_dir.exists() {
-            std::fs::create_dir_all(&container_cpu_cgroup_dir)?;
-        }
-
-        File::create(container_cpu_cgroup_dir.join("tasks"))?
-            .write_all(std::process::id().to_string().as_bytes())?;
+        let container_cpu_cgroup_dir = create_cgroup_task(container_id, "cpu")?;
 
         if let Some(cpu_shares) = cpu_shares {
             File::create(container_cpu_cgroup_dir.join("cpu.shares"))?
@@ -184,13 +178,7 @@ fn setup_memory_cgroup(container_id: &str, memory: Option<i64>, memory_swap: Opt
     trace!("Setup memory group - memory: {:?}, memory_swap: {:?}", memory, memory_swap);
 
     let inner = || -> ContainerRuntimeResult<()> {
-        let container_memory_cgroup_dir = Path::new("/sys/fs/cgroup/memory").join("container_runtime").join(container_id);
-        if !container_memory_cgroup_dir.exists() {
-            std::fs::create_dir_all(&container_memory_cgroup_dir)?;
-        }
-
-        File::create(container_memory_cgroup_dir.join("tasks"))?
-            .write_all(std::process::id().to_string().as_bytes())?;
+        let container_memory_cgroup_dir = create_cgroup_task(container_id, "memory")?;
 
         if let Some(memory) = memory {
             File::create(container_memory_cgroup_dir.join("memory.limit_in_bytes"))?
@@ -206,6 +194,18 @@ fn setup_memory_cgroup(container_id: &str, memory: Option<i64>, memory_swap: Opt
     };
 
     inner().map_err(|err| ContainerRuntimeError::SetupMemoryCgroup(err.to_string()))
+}
+
+fn create_cgroup_task(container_id: &str, task_type: &str) -> ContainerRuntimeResult<PathBuf> {
+    let container_cgroup_dir = Path::new(&format!("/sys/fs/cgroup/{}", task_type)).join("container_runtime").join(container_id);
+    if !container_cgroup_dir.exists() {
+        std::fs::create_dir_all(&container_cgroup_dir)?;
+    }
+
+    File::create(container_cgroup_dir.join("tasks"))?
+        .write_all(std::process::id().to_string().as_bytes())?;
+
+    Ok(container_cgroup_dir)
 }
 
 fn setup_network(network_namespace: &str, hostname: Option<String>) -> ContainerRuntimeResult<()> {
