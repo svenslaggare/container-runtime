@@ -12,5 +12,5 @@ if [ $# -ne 3 ]; then
 fi
 
 if ! ip link show $bridge_interface &> /dev/null; then
-    ./create_bridge.sh "$host_phy_interface" "$bridge_interface" "$bridge_ip_address"
+    ./scripts/create_bridge.sh "$host_phy_interface" "$bridge_interface" "$bridge_ip_address"
 fi

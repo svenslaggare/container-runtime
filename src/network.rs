@@ -10,7 +10,7 @@ use crate::spec::{BridgedNetworkSpec, BridgeNetworkSpec};
 
 pub fn create_bridge(bridge: &BridgeNetworkSpec) -> ContainerRuntimeResult<()> {
     let result = Command::new("bash")
-        .args(["try_create_bridge.sh", &bridge.physical_interface, &bridge.interface, &bridge.ip_address.to_string()])
+        .args(["scripts/try_create_bridge.sh", &bridge.physical_interface, &bridge.interface, &bridge.ip_address.to_string()])
         .spawn().unwrap()
         .wait().unwrap();
 
@@ -48,7 +48,7 @@ impl Drop for NetworkNamespace {
 fn create_network_namespace(bridge: &BridgedNetworkSpec, network_namespace: &str) -> ContainerRuntimeResult<()> {
     let result = Command::new("bash")
         .args([
-            "create_network_namespace.sh",
+            "scripts/create_network_namespace.sh",
             &bridge.bridge_interface,
             &bridge.bridge_ip_address.to_string(),
             network_namespace,
@@ -66,7 +66,7 @@ fn create_network_namespace(bridge: &BridgedNetworkSpec, network_namespace: &str
 
 fn destroy_network_namespace(network_namespace: &str) -> ContainerRuntimeResult<()> {
     let result = Command::new("bash")
-        .args(["destroy_network_namespace.sh", &network_namespace])
+        .args(["scripts/destroy_network_namespace.sh", &network_namespace])
         .spawn().unwrap()
         .wait().unwrap();
 

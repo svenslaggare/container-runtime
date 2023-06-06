@@ -13,5 +13,5 @@ if [ $# -ne 4 ]; then
 fi
 
 ip netns add $namespace
-./setup_network_namespace.sh "$bridge_interface" "$bridge_ip_address" "$namespace" "$namespace_ip_address"
+./scripts/setup_network_namespace.sh "$bridge_interface" "$bridge_ip_address" "$namespace" "$namespace_ip_address"
 echo "Created network namespace '$namespace' at $namespace_ip_address"

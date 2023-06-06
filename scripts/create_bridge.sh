@@ -15,7 +15,7 @@ ip link add name $bridge_interface type bridge
 ip link set dev $bridge_interface up
 ip addr add $bridge_ip_address dev $bridge_interface
 
-echo 1 | tee -a /proc/sys/net/ipv4/ip_forward
+echo 1 > tee -a /proc/sys/net/ipv4/ip_forward
 iptables -P FORWARD DROP
 iptables -F FORWARD
 iptables -t nat -F
