@@ -15,7 +15,7 @@ pub fn create_bridge(bridge: &BridgeNetworkSpec) -> ContainerRuntimeResult<()> {
         .wait().unwrap();
 
     if !result.success() {
-        return Err(ContainerRuntimeError::FailedToCreateNetworkBridge);
+        return Err(ContainerRuntimeError::CreateNetworkBridge);
     }
 
     Ok(())
@@ -58,7 +58,7 @@ fn create_network_namespace(bridge: &BridgedNetworkSpec, network_namespace: &str
         .wait().unwrap();
 
     if !result.success() {
-        return Err(ContainerRuntimeError::FailedToCreateNetworkNamespace);
+        return Err(ContainerRuntimeError::CreateNetworkNamespace);
     }
 
     Ok(())
@@ -71,7 +71,7 @@ fn destroy_network_namespace(network_namespace: &str) -> ContainerRuntimeResult<
         .wait().unwrap();
 
     if !result.success() {
-        return Err(ContainerRuntimeError::FailedToCreateNetworkNamespace);
+        return Err(ContainerRuntimeError::CreateNetworkNamespace);
     }
 
     Ok(())

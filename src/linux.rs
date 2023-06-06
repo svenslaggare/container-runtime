@@ -26,6 +26,20 @@ pub fn mount(src: Option<&str>, target: &Path, fstype: Option<&str>, flags: c_ul
     }
 }
 
+pub fn exec(command: &Vec<String>) -> ContainerRuntimeResult<()> {
+    let command = command.iter().map(|part| CString::new(part.as_str()).unwrap()).collect::<Vec<_>>();
+    let mut command_ptrs = command.iter().map(|part| part.as_ptr()).collect::<Vec<_>>();
+    command_ptrs.push(std::ptr::null());
+
+    unsafe {
+        if libc::execvp(command_ptrs[0], &command_ptrs[0]) == 0 {
+            Ok(())
+        } else {
+            Err(ContainerRuntimeError::Execute(extract_libc_error_message()))
+        }
+    }
+}
+
 pub fn wrap_libc_error(result: i32) -> ContainerRuntimeResult<i32> {
     if result >= 0 {
         Ok(result)

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use log::trace;
 
-use crate::linux::{mount, wrap_libc_error};
+use crate::linux::{exec, mount, wrap_libc_error};
 use crate::model::{ContainerRuntimeError, ContainerRuntimeResult, User};
 use crate::network::NetworkNamespace;
 use crate::spec::{NetworkSpec, RunContainerSpec};
@@ -84,11 +84,7 @@ fn execute(spec: &RunContainerSpec) -> ContainerRuntimeResult<()> {
         setup_user(user)?;
     }
 
-    unsafe {
-        let command = spec.command.iter().map(|part| CString::new(part.as_str()).unwrap()).collect::<Vec<_>>();
-        let command_ptrs = command.iter().map(|part| part.as_ptr()).collect::<Vec<_>>();
-        wrap_libc_error(libc::execvp(command_ptrs[0], &command_ptrs[0]))?;
-    }
+    exec(&spec.command)?;
 
     Ok(())
 }
@@ -158,7 +154,7 @@ fn setup_container_root(new_root: &Path, working_dir: &Path) -> ContainerRuntime
         Ok(())
     };
 
-    inner().map_err(|err| ContainerRuntimeError::FailedToSetupContainerRoot(err.to_string()))
+    inner().map_err(|err| ContainerRuntimeError::SetupContainerRoot(err.to_string()))
 }
 
 fn setup_cpu_cgroup(container_id: &str, cpu_shares: Option<i64>) -> ContainerRuntimeResult<()> {
@@ -181,7 +177,7 @@ fn setup_cpu_cgroup(container_id: &str, cpu_shares: Option<i64>) -> ContainerRun
         Ok(())
     };
 
-    inner().map_err(|err| ContainerRuntimeError::FailedToSetupCpuCgroup(err.to_string()))
+    inner().map_err(|err| ContainerRuntimeError::SetupCpuCgroup(err.to_string()))
 }
 
 fn setup_memory_cgroup(container_id: &str, memory: Option<i64>, memory_swap: Option<i64>) -> ContainerRuntimeResult<()> {
@@ -209,7 +205,7 @@ fn setup_memory_cgroup(container_id: &str, memory: Option<i64>, memory_swap: Opt
         Ok(())
     };
 
-    inner().map_err(|err| ContainerRuntimeError::FailedToSetupMemoryCgroup(err.to_string()))
+    inner().map_err(|err| ContainerRuntimeError::SetupMemoryCgroup(err.to_string()))
 }
 
 fn setup_network(network_namespace: &str, hostname: Option<String>) -> ContainerRuntimeResult<()> {
@@ -231,7 +227,7 @@ fn setup_network(network_namespace: &str, hostname: Option<String>) -> Container
         Ok(())
     };
 
-    inner().map_err(|err| ContainerRuntimeError::FailedToSetupNetwork(err.to_string()))
+    inner().map_err(|err| ContainerRuntimeError::SetupNetwork(err.to_string()))
 }
 
 fn setup_dns(new_root: &Path) -> ContainerRuntimeResult<()> {
@@ -244,7 +240,7 @@ fn setup_dns(new_root: &Path) -> ContainerRuntimeResult<()> {
         Ok(())
     };
 
-    inner().map_err(|err| ContainerRuntimeError::FailedToSetupDNS(err.to_string()))
+    inner().map_err(|err| ContainerRuntimeError::SetupDNS(err.to_string()))
 }
 
 fn setup_user(user: &User) -> ContainerRuntimeResult<()> {
@@ -261,7 +257,7 @@ fn setup_user(user: &User) -> ContainerRuntimeResult<()> {
         Ok(())
     };
 
-    inner().map_err(|err| ContainerRuntimeError::FailedToSetupUser(err.to_string()))
+    inner().map_err(|err| ContainerRuntimeError::SetupUser(err.to_string()))
 }
 
 fn setup_mounts(new_root: &Path) -> ContainerRuntimeResult<()> {
@@ -281,7 +277,7 @@ fn setup_mounts(new_root: &Path) -> ContainerRuntimeResult<()> {
         Ok(())
     };
 
-    inner().map_err(|err| ContainerRuntimeError::FailedToSetupMounts(err.to_string()))
+    inner().map_err(|err| ContainerRuntimeError::SetupMounts(err.to_string()))
 }
 
 fn setup_devices(dev_path: &Path) -> ContainerRuntimeResult<()> {
@@ -316,5 +312,5 @@ fn setup_devices(dev_path: &Path) -> ContainerRuntimeResult<()> {
         Ok(())
     };
 
-    inner().map_err(|err| ContainerRuntimeError::FailedToSetupDevices(err.to_string()))
+    inner().map_err(|err| ContainerRuntimeError::SetupDevices(err.to_string()))
 }

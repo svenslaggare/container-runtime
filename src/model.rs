@@ -11,31 +11,33 @@ use crate::spec::UserSpec;
 #[derive(Error, Debug)]
 pub enum ContainerRuntimeError {
     #[error("Failed to create network bridge")]
-    FailedToCreateNetworkBridge,
+    CreateNetworkBridge,
     #[error("Failed to create network namespace")]
-    FailedToCreateNetworkNamespace,
+    CreateNetworkNamespace,
     #[error("Failed to setup cpu cgroup: {0}")]
-    FailedToSetupCpuCgroup(String),
+    SetupCpuCgroup(String),
     #[error("Failed to setup memory cgroup: {0}")]
-    FailedToSetupMemoryCgroup(String),
+    SetupMemoryCgroup(String),
     #[error("Failed to setup network stack: {0}")]
-    FailedToSetupNetwork(String),
+    SetupNetwork(String),
     #[error("Failed to setup DNS: {0}")]
-    FailedToSetupDNS(String),
+    SetupDNS(String),
     #[error("Failed to setup user: {0}")]
-    FailedToSetupUser(String),
+    SetupUser(String),
     #[error("Failed to setup container root: {0}")]
-    FailedToSetupContainerRoot(String),
+    SetupContainerRoot(String),
     #[error("Failed to setup mounts: {0}")]
-    FailedToSetupMounts(String),
+    SetupMounts(String),
     #[error("Failed to setup devices: {0}")]
-    FailedToSetupDevices(String),
+    SetupDevices(String),
 
     #[error("User not found: {0:?}")]
     InvalidUser(UserSpec),
 
     #[error("Failed to mount: {0}")]
     Mount(String),
+    #[error("Failed to execute: {0}")]
+    Execute(String),
     #[error("I/O error: {0}")]
     IO(#[from] std::io::Error),
     #[error("Libc error: {0}")]
