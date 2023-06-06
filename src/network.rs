@@ -1,5 +1,7 @@
+use std::fmt::{Display};
 use std::net::Ipv4Addr;
 use std::process::Command;
+use std::str::FromStr;
 
 use log::error;
 
@@ -8,7 +10,7 @@ use crate::spec::{BridgedNetworkSpec, BridgeNetworkSpec};
 
 pub fn create_bridge(bridge: &BridgeNetworkSpec) -> ContainerRuntimeResult<()> {
     let result = Command::new("bash")
-        .args(["try_create_bridge.sh", &bridge.physical_interface, &bridge.interface, &bridge.ip_address])
+        .args(["try_create_bridge.sh", &bridge.physical_interface, &bridge.interface, &bridge.ip_address.to_string()])
         .spawn().unwrap()
         .wait().unwrap();
 
@@ -45,7 +47,13 @@ impl Drop for NetworkNamespace {
 
 fn create_network_namespace(bridge: &BridgedNetworkSpec, network_namespace: &str) -> ContainerRuntimeResult<()> {
     let result = Command::new("bash")
-        .args(["create_network_namespace.sh", &bridge.bridge_interface, &bridge.bridge_ip_address, network_namespace, &bridge.container_ip_address])
+        .args([
+            "create_network_namespace.sh",
+            &bridge.bridge_interface,
+            &bridge.bridge_ip_address.to_string(),
+            network_namespace,
+            &bridge.container_ip_address.to_string()
+        ])
         .spawn().unwrap()
         .wait().unwrap();
 
@@ -69,9 +77,9 @@ fn destroy_network_namespace(network_namespace: &str) -> ContainerRuntimeResult<
     Ok(())
 }
 
-pub fn find_free_ip_address(base_ip_address: Ipv4Addr) -> Option<Ipv4Addr> {
+pub fn find_free_ip_address(base_ip_address: Ipv4Net) -> Option<Ipv4Net> {
     let network_namespaces = find_container_network_namespaces();
-    let check_is_ip_address_used = |ip_address: String| {
+    let check_is_ip_address_used = |ip_address: Ipv4Net| {
         if is_ip_address_used(&ip_address, None) {
             return true;
         }
@@ -85,17 +93,13 @@ pub fn find_free_ip_address(base_ip_address: Ipv4Addr) -> Option<Ipv4Addr> {
         false
     };
 
-    let mut next_ip_address_parts = base_ip_address.octets();
-    for _ in 0..1024 {
-        let next_ip_address = Ipv4Addr::new(next_ip_address_parts[0], next_ip_address_parts[1], next_ip_address_parts[2], next_ip_address_parts[3]);
-        if !check_is_ip_address_used(next_ip_address.to_string()) {
+    let mut next_ip_address = base_ip_address;
+    for _ in 0..base_ip_address.subnet_size() {
+        if !check_is_ip_address_used(next_ip_address) {
             return Some(next_ip_address);
         }
 
-        next_ip_address_parts[3] += 1;
-        if next_ip_address_parts[3] == 0 {
-            next_ip_address_parts[2] += 1;
-        }
+        next_ip_address = next_ip_address.next();
     }
 
     None
@@ -114,7 +118,7 @@ fn find_container_network_namespaces() -> Vec<String> {
         .collect()
 }
 
-fn is_ip_address_used(ip_address: &str, namespace: Option<&str>) -> bool {
+fn is_ip_address_used(ip_address: &Ipv4Net, namespace: Option<&str>) -> bool {
     let arguments = if let Some(namespace) = namespace {
         vec!["netns", "exec", namespace, "ip", "addr", "show"]
     } else {
@@ -126,5 +130,103 @@ fn is_ip_address_used(ip_address: &str, namespace: Option<&str>) -> bool {
         .output().unwrap();
 
     let output = String::from_utf8(result.stdout).unwrap();
-    output.contains(ip_address)
+    output.contains(&ip_address.to_string())
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Ipv4Net {
+    pub address: Ipv4Addr,
+    pub subnet_cidr: u16
+}
+
+impl Ipv4Net {
+    pub fn new(address: Ipv4Addr, subnet_cidr: u16) -> Ipv4Net {
+        Ipv4Net {
+            address,
+            subnet_cidr
+        }
+    }
+
+    pub fn subnet_mask(&self) -> u32 {
+        !((1 << (32 - self.subnet_cidr) as u32) - 1)
+    }
+
+    pub fn subnet_size(&self) -> u32 {
+        (32 - self.subnet_cidr) as u32
+    }
+
+    pub fn next(&self) -> Ipv4Net {
+        let (network_part, host_part) = self.split();
+
+        let next_address = network_part | ((host_part + 1) & !self.subnet_mask());
+        let next_address = Ipv4Addr::from(next_address);
+
+        Ipv4Net::new(next_address, self.subnet_cidr)
+    }
+
+    pub fn is_network(&self) -> bool {
+        let (_, host_part) = self.split();
+        host_part == 0
+    }
+
+    pub fn is_broadcast(&self) -> bool {
+        let (_, host_part) = self.split();
+        host_part == (1 << (32 - self.subnet_cidr)) - 1
+    }
+
+    fn split(&self) -> (u32, u32) {
+        let addr_uint = u32::from_be_bytes(self.address.octets());
+        let subnet_mask = self.subnet_mask();
+
+        let network_part = addr_uint & subnet_mask;
+        let host_part = addr_uint & !subnet_mask;
+        (network_part, host_part)
+    }
+}
+
+impl Display for Ipv4Net {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.address, self.subnet_cidr)
+    }
+}
+
+impl FromStr for Ipv4Net {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let mut parts = text.split("/");
+        let address = parts.next().ok_or_else(|| "Expected IP address.")?;
+        let subnet_size = parts.next().ok_or_else(|| "Expected /subnet_size.")?;
+
+        let address = Ipv4Addr::from_str(address).map_err(|err| format!("Failed to parse IP address: {}", err))?;
+        let subnet_size = u16::from_str(subnet_size).map_err(|err| format!("Failed to parse subnet size: {}", err))?;
+
+        Ok(Ipv4Net::new(address, subnet_size))
+    }
+}
+
+#[test]
+fn test_ipv4net_from_str() {
+    assert_eq!(Ok(Ipv4Net::new(Ipv4Addr::new(127, 0, 0, 1), 17)), Ipv4Net::from_str("127.0.0.1/17"));
+}
+
+#[test]
+fn test_ipv4net_subnet_mask() {
+    let net1 = Ipv4Net::new(Ipv4Addr::new(127, 0, 0, 1), 24);
+    let net2 = Ipv4Net::new(Ipv4Addr::new(127, 0, 0, 1), 17);
+    assert_eq!([255, 255, 255, 0], net1.subnet_mask().to_be_bytes());
+    assert_eq!([255, 255, 128, 0], net2.subnet_mask().to_be_bytes());
+}
+
+#[test]
+fn test_ipv4net_next_address() {
+    let net1 = Ipv4Net::new(Ipv4Addr::new(127, 41, 12, 1), 24);
+
+    let mut current = net1;
+    for _ in 0..255 {
+        current = current.next();
+    }
+
+    assert_eq!(Ipv4Net::new(Ipv4Addr::new(127, 41, 12, 0), 24), current);
+    assert_eq!(true, current.is_network());
 }

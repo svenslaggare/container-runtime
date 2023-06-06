@@ -1,6 +1,7 @@
-use std::net::Ipv4Addr;
 use std::str::FromStr;
 use uuid::Uuid;
+
+use crate::network::Ipv4Net;
 
 mod model;
 mod spec;
@@ -17,13 +18,12 @@ fn main() {
     let image_base_dir = base_dir.join("images");
     let containers_base_dir = base_dir.join("containers");
 
-    let bridge_ip_address = Ipv4Addr::from_str("10.10.10.1").unwrap();
-    let bridge_cidr = "24";
+    let bridge_ip_address = Ipv4Net::from_str("10.10.10.1/24").unwrap();
 
     let bridge = BridgeNetworkSpec {
         physical_interface: "enp3s0".to_string(),
         interface: "cort0".to_string(),
-        ip_address: format!("{}/{}", bridge_ip_address, bridge_cidr),
+        ip_address: bridge_ip_address
     };
 
     network::create_bridge(&bridge).unwrap();
@@ -31,7 +31,7 @@ fn main() {
     let bridged = BridgedNetworkSpec {
         bridge_interface: bridge.interface.clone(),
         bridge_ip_address: bridge.ip_address.clone(),
-        container_ip_address: format!("{}/{}", network::find_free_ip_address(bridge_ip_address).unwrap(), bridge_cidr),
+        container_ip_address: network::find_free_ip_address(bridge_ip_address).unwrap(),
         hostname: None
     };
 
