@@ -70,10 +70,25 @@ fn destroy_network_namespace(network_namespace: &str) -> ContainerRuntimeResult<
 }
 
 pub fn find_free_ip_address(base_ip_address: Ipv4Addr) -> Option<Ipv4Addr> {
+    let network_namespaces = find_container_network_namespaces();
+    let check_is_ip_address_used = |ip_address: String| {
+        if is_ip_address_used(&ip_address, None) {
+            return true;
+        }
+
+        for namespace in &network_namespaces {
+            if is_ip_address_used(&ip_address, Some(namespace)) {
+                return true;
+            }
+        }
+
+        false
+    };
+
     let mut next_ip_address_parts = base_ip_address.octets();
     for _ in 0..1024 {
         let next_ip_address = Ipv4Addr::new(next_ip_address_parts[0], next_ip_address_parts[1], next_ip_address_parts[2], next_ip_address_parts[3]);
-        if !is_ip_address_used(&next_ip_address.to_string()) {
+        if !check_is_ip_address_used(next_ip_address.to_string()) {
             return Some(next_ip_address);
         }
 
@@ -86,9 +101,28 @@ pub fn find_free_ip_address(base_ip_address: Ipv4Addr) -> Option<Ipv4Addr> {
     None
 }
 
-pub fn is_ip_address_used(ip_address: &str) -> bool {
+fn find_container_network_namespaces() -> Vec<String> {
     let result = Command::new("ip")
-        .args(["addr", "show"])
+        .args(["netns", "list"])
+        .output().unwrap();
+
+    let output = String::from_utf8(result.stdout).unwrap();
+    output
+        .lines()
+        .map(|line| line.split(" ").next().unwrap().to_owned())
+        .filter(|namespace| namespace.starts_with("cort-"))
+        .collect()
+}
+
+fn is_ip_address_used(ip_address: &str, namespace: Option<&str>) -> bool {
+    let arguments = if let Some(namespace) = namespace {
+        vec!["netns", "exec", namespace, "ip", "addr", "show"]
+    } else {
+        vec!["addr", "show"]
+    };
+
+    let result = Command::new("ip")
+        .args(arguments)
         .output().unwrap();
 
     let output = String::from_utf8(result.stdout).unwrap();
