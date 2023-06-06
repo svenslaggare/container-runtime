@@ -1,210 +1,127 @@
-use std::collections::HashMap;
-use std::ffi::{c_int, c_ulong, c_void, CStr, CString};
+use std::ffi::{c_int, c_void, CString};
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{ Write};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::str::FromStr;
-
-use thiserror::Error;
+use log::trace;
 
 use uuid::Uuid;
 
+mod model;
+mod spec;
+mod linux;
+
+use crate::spec::{BridgedNetworkSpec, NetworkSpec, RunContainerSpec, UserSpec};
+use crate::model::{ContainerRuntimeError, ContainerRuntimeResult, User};
+use crate::linux::{mount, wrap_libc_error};
+
 fn main() {
-    let id = Uuid::new_v4().to_string();
-    let image_root = Path::new("/home/antjans/Code/container-runtime/images/ubuntu/rootfs");
-    let container_root = Path::new("/home/antjans/Code/container-runtime/containers").join(&id);
+    setup_logging().unwrap();
+
+    let base_dir = std::env::current_dir().unwrap();
+    let image_base_dir = base_dir.join("images");
+    let containers_base_dir = base_dir.join("containers");
 
     let run_container_spec = RunContainerSpec {
-        id,
-        image_root: image_root.to_owned(),
-        container_root: container_root.to_owned(),
+        image_base_dir,
+        containers_base_dir,
+        id: Uuid::new_v4().to_string(),
+        image: "ubuntu".to_string(),
         command: vec!["/bin/bash".to_owned()],
-        hostname: None,
-        // user: Some(UserSpec::Name("ubuntu".to_owned())),
-        user: None,
+        network: NetworkSpec::Bridged(BridgedNetworkSpec {
+            bridge_interface: "cort0".to_string(),
+            bridge_ip_address: "10.10.10.40/2".to_string(),
+            container_ip_address: "10.10.10.10/24".to_string(),
+            hostname: None
+        }),
+        // network: NetworkSpec::Host,
+        user: Some(UserSpec::Name("ubuntu".to_owned())),
+        // user: None,
         cpu_shares: Some(256),
         memory: Some(1024 * 1024),
         memory_swap: None
     };
 
-    let child_stack_size = 32 * 1024;
-    let mut child_stack = vec![0u8; child_stack_size];
+    run_container(&run_container_spec).unwrap();
+}
 
-    let network_namespace = run_container_spec.network_namespace();
-    create_network_namespace("cort0", "10.10.10.40/24", &network_namespace, "10.10.10.10/24").unwrap();
+fn setup_logging() -> Result<(), log::SetLoggerError> {
+    fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "{}[{}][{}] {}",
+                chrono::Local::now().format("[%Y-%m-%d][%H:%M:%S.%f]"),
+                record.target(),
+                record.level(),
+                message
+            ))
+        })
+        .level(log::LevelFilter::Debug)
+        .chain(std::io::stdout())
+        .apply()?;
+    Ok(())
+}
+
+fn run_container(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResult<()> {
+    let mut child_stack = vec![0u8; 64 * 1024];
+
+    let network_namespace = if let NetworkSpec::Bridged(bridged) = &run_container_spec.network {
+        let network_namespace = run_container_spec.network_namespace().unwrap();
+        create_network_namespace(bridged, &network_namespace)?;
+        Some(network_namespace)
+    } else {
+        None
+    };
 
     let pid = unsafe {
         extern "C" fn clone_callback(args: *mut c_void) -> c_int {
-            run_container(unsafe { &*(args as *const RunContainerSpec) }).unwrap();
+            execute_container(unsafe { &*(args as *const RunContainerSpec) }).unwrap();
             0
         }
 
+        let create_network_namespace = if network_namespace.is_some() {libc::CLONE_NEWNET} else {0};
+
         wrap_libc_error(libc::clone(
             clone_callback,
-            child_stack.as_mut_ptr().offset(child_stack_size as isize) as *mut c_void,
-            libc::CLONE_NEWPID | libc::CLONE_NEWNS | libc::CLONE_NEWUTS | libc::CLONE_NEWNET | libc::SIGCHLD,
-            &run_container_spec as *const _ as *mut c_void
+            child_stack.as_mut_ptr().offset(child_stack.len() as isize) as *mut c_void,
+            libc::CLONE_NEWPID | libc::CLONE_NEWNS | libc::CLONE_NEWUTS | create_network_namespace | libc::SIGCHLD,
+            run_container_spec as *const _ as *mut c_void
         )).unwrap()
     };
 
     let status = unsafe {
         let mut status = 0;
-        wrap_libc_error(libc::waitpid(pid, &mut status as *mut c_int, 0)).unwrap();
+        wrap_libc_error(libc::waitpid(pid, &mut status as *mut c_int, 0))?;
         status
     };
 
-    println!("PID {} exited status: {}", pid, status);
-    std::fs::remove_dir_all(container_root).unwrap();
-    destroy_network_namespace(&network_namespace).unwrap();
-}
+    println!("PID {} exited with status {}", pid, status);
+    std::fs::remove_dir_all(run_container_spec.container_root())?;
 
-#[derive(Error, Debug)]
-enum ContainerRuntimeError {
-    #[error("Failed to create network namespace")]
-    FailedToCreateNetworkNamespace,
-    #[error("User not found: {0:?}")]
-    InvalidUser(UserSpec),
-    #[error("Failed to mount: {0}")]
-    Mount(String),
-    #[error("I/O error: {0}")]
-    IO(#[from] std::io::Error),
-    #[error("Libc error: {0}")]
-    Libc(String)
-}
-
-type ContainerRuntimeResult<T> = Result<T, ContainerRuntimeError>;
-
-struct RunContainerSpec {
-    id: String,
-    image_root: PathBuf,
-    container_root: PathBuf,
-    command: Vec<String>,
-    hostname: Option<String>,
-    user: Option<UserSpec>,
-    cpu_shares: Option<i64>,
-    memory: Option<i64>,
-    memory_swap: Option<i64>
-}
-
-impl RunContainerSpec {
-    pub fn hostname(&self) -> String {
-        self.hostname.clone().unwrap_or_else(|| self.id.clone())
+    if let Some(network_namespace) = network_namespace {
+        destroy_network_namespace(&network_namespace)?;
     }
 
-    pub fn user<'a, T: Iterator<Item=&'a User>>(&'a self, users: T) -> Option<ContainerRuntimeResult<User>> {
-        let user = self.user.as_ref()?;
-
-        Some(
-            user
-                .find_user(users)
-                .ok_or_else(|| ContainerRuntimeError::InvalidUser(user.clone()))
-        )
-    }
-
-    pub fn network_namespace(&self) -> String {
-        format!("cort-{}", &self.id[..4])
-    }
+    Ok(())
 }
 
-#[derive(Debug, Clone)]
-enum UserSpec {
-    Name(String),
-    Id(i32),
-    IdAndGroupId(i32, i32)
-}
-
-impl UserSpec {
-    pub fn find_user<'a, T: Iterator<Item=&'a User>>(&'a self, users: T) -> Option<User> {
-        match self {
-            UserSpec::Name(name) => {
-                for user in users {
-                    if &user.username == name {
-                        return Some(user.clone());
-                    }
-                }
-
-                None
-            }
-            UserSpec::Id(id) => {
-                for user in users {
-                    if &user.id == id {
-                        return Some(user.clone());
-                    }
-                }
-
-                Some(
-                    User {
-                        username: "unknown".to_string(),
-                        id: *id,
-                        group_id: None,
-                        home_folder: Path::new("/root").to_owned()
-                    }
-                )
-            }
-            UserSpec::IdAndGroupId(user_id, group_id) => {
-                for user in users {
-                    if &user.id == user_id && &user.group_id == &Some(*group_id) {
-                        return Some(user.clone());
-                    }
-                }
-
-                Some(
-                    User {
-                        username: "unknown".to_string(),
-                        id: *user_id,
-                        group_id: Some(*group_id),
-                        home_folder: Path::new("/root").to_owned()
-                    }
-                )
-            }
-        }
-    }
-}
-
-fn run_container(spec: &RunContainerSpec) -> ContainerRuntimeResult<()> {
-    let file = File::open(format!("/run/netns/{}", spec.network_namespace()))?;
-    unsafe {
-        wrap_libc_error(libc::setns(
-            file.as_raw_fd(),
-            libc::CLONE_NEWNET
-        )).unwrap();
-    }
-
+fn execute_container(spec: &RunContainerSpec) -> ContainerRuntimeResult<()> {
     setup_cpu_cgroup(&spec.id, spec.cpu_shares)?;
     setup_memory_cgroup(&spec.id, spec.memory, spec.memory_swap)?;
 
-    unsafe {
-        let hostname = CString::new(spec.hostname().as_str()).unwrap();
-        wrap_libc_error(libc::sethostname(hostname.as_ptr(), hostname.as_bytes().len()))?;
+    if let Some(network_namespace) = spec.network_namespace() {
+        setup_network(&network_namespace, spec.hostname())?;
     }
 
     mount(None, Path::new("/"), None, libc::MS_PRIVATE | libc::MS_REC, None)?;
 
-    let new_root = create_container_root(&spec.image_root, &spec.container_root)?;
+    let new_root = create_container_root(&spec.image_root(), &spec.container_root())?;
     println!("Container root: {}", new_root.to_str().unwrap());
+
+    setup_dns(&new_root)?;
+
     let users = User::from_passwd_file(&new_root.join("etc").join("passwd"))?;
-
-    let mut dns_config = File::create(new_root.join("etc").join("resolv.conf"))?;
-    dns_config.write_all(format!("nameserver 8.8.8.8").as_bytes())?;
-
-    create_mounts(&new_root)?;
-
-    let old_root = new_root.join("old_root");
-    std::fs::create_dir_all(&old_root).unwrap();
-
-    unsafe {
-        let new_root_str = CString::new(new_root.to_str().unwrap()).unwrap();
-        let old_root_str = CString::new(old_root.to_str().unwrap()).unwrap();
-
-        wrap_libc_error(libc::syscall(
-            libc::SYS_pivot_root,
-            new_root_str.as_ptr(),
-            old_root_str.as_ptr()
-        ) as i32)?;
-    }
-
     let user = match spec.user(users.values()) {
         Some(user) => Some(user?),
         None => None
@@ -215,32 +132,14 @@ fn run_container(spec: &RunContainerSpec) -> ContainerRuntimeResult<()> {
         .map(|user| user.home_folder.clone())
         .unwrap_or(Path::new("/").to_owned());
 
-    unsafe {
-        let working_dir = CString::new(working_dir.to_str().unwrap()).unwrap();
-        wrap_libc_error(libc::chdir(working_dir.as_ptr()))?;
-    }
-
     if let Some(user) = user.as_ref() {
         std::env::set_var("HOME", user.home_folder.to_str().unwrap());
     }
 
-    unsafe {
-        let target = CString::new("/old_root").unwrap();
-        wrap_libc_error(libc::umount2(target.as_ptr(), libc::MNT_DETACH))?;
-    }
-
-    std::fs::remove_dir("/old_root").unwrap();
+    setup_container_root(&new_root, &working_dir)?;
 
     if let Some(user) = user.as_ref() {
-        if let Some(group_id) = user.group_id{
-            unsafe {
-                wrap_libc_error(libc::setgid(group_id as libc::gid_t))?;
-            }
-        }
-
-        unsafe {
-            wrap_libc_error(libc::setuid(user.id as libc::gid_t))?;
-        }
+        setup_user(user)?;
     }
 
     unsafe {
@@ -253,6 +152,8 @@ fn run_container(spec: &RunContainerSpec) -> ContainerRuntimeResult<()> {
 }
 
 fn create_container_root(image_root: &Path, container_root: &Path) -> ContainerRuntimeResult<PathBuf> {
+    trace!("Create container root - image root: {}, container root: {}", image_root.to_str().unwrap(), container_root.to_str().unwrap());
+
     let container_cow_rw = container_root.join("cow_rw");
     let container_cow_workdir = container_root.join("cow_workdir");
     let container_rootfs = container_root.join("rootfs");
@@ -279,58 +180,168 @@ fn create_container_root(image_root: &Path, container_root: &Path) -> ContainerR
     Ok(container_rootfs)
 }
 
+fn setup_container_root(new_root: &Path, working_dir: &Path) -> ContainerRuntimeResult<()> {
+    trace!("Setup container root - new root: {}, working dir: {}", new_root.to_str().unwrap(), working_dir.to_str().unwrap());
+
+    let inner = || -> ContainerRuntimeResult<()> {
+        setup_mounts(&new_root)?;
+
+        let old_root = new_root.join("old_root");
+        std::fs::create_dir_all(&old_root)?;
+
+        unsafe {
+            let new_root_str = CString::new(new_root.to_str().unwrap()).unwrap();
+            let old_root_str = CString::new(old_root.to_str().unwrap()).unwrap();
+
+            wrap_libc_error(libc::syscall(
+                libc::SYS_pivot_root,
+                new_root_str.as_ptr(),
+                old_root_str.as_ptr()
+            ) as i32)?;
+        }
+
+        unsafe {
+            let working_dir = CString::new(working_dir.to_str().unwrap()).unwrap();
+            wrap_libc_error(libc::chdir(working_dir.as_ptr()))?;
+        }
+
+        unsafe {
+            let target = CString::new("/old_root").unwrap();
+            wrap_libc_error(libc::umount2(target.as_ptr(), libc::MNT_DETACH))?;
+        }
+
+        std::fs::remove_dir("/old_root")?;
+
+        Ok(())
+    };
+
+    inner().map_err(|err| ContainerRuntimeError::FailedToSetupContainerRoot(err.to_string()))
+}
+
 fn setup_cpu_cgroup(container_id: &str, cpu_shares: Option<i64>) -> ContainerRuntimeResult<()> {
-    let container_cpu_cgroup_dir = Path::new("/sys/fs/cgroup/cpu").join("container_runtime").join(container_id);
-    if !container_cpu_cgroup_dir.exists() {
-        std::fs::create_dir_all(&container_cpu_cgroup_dir)?;
-    }
+    trace!("Setup cpu group - cpu shares: {:?}", cpu_shares);
 
-    File::create(container_cpu_cgroup_dir.join("tasks"))?
-        .write_all(std::process::id().to_string().as_bytes())?;
+    let inner = || -> ContainerRuntimeResult<()> {
+        let container_cpu_cgroup_dir = Path::new("/sys/fs/cgroup/cpu").join("container_runtime").join(container_id);
+        if !container_cpu_cgroup_dir.exists() {
+            std::fs::create_dir_all(&container_cpu_cgroup_dir)?;
+        }
 
-    if let Some(cpu_shares) = cpu_shares {
-        File::create(container_cpu_cgroup_dir.join("cpu.shares"))?
-            .write_all(cpu_shares.to_string().as_bytes())?;
-    }
+        File::create(container_cpu_cgroup_dir.join("tasks"))?
+            .write_all(std::process::id().to_string().as_bytes())?;
 
-    Ok(())
+        if let Some(cpu_shares) = cpu_shares {
+            File::create(container_cpu_cgroup_dir.join("cpu.shares"))?
+                .write_all(cpu_shares.to_string().as_bytes())?;
+        }
+
+        Ok(())
+    };
+
+    inner().map_err(|err| ContainerRuntimeError::FailedToSetupCpuCgroup(err.to_string()))
 }
 
 fn setup_memory_cgroup(container_id: &str, memory: Option<i64>, memory_swap: Option<i64>) -> ContainerRuntimeResult<()> {
-    let container_memory_cgroup_dir = Path::new("/sys/fs/cgroup/memory").join("container_runtime").join(container_id);
-    if !container_memory_cgroup_dir.exists() {
-        std::fs::create_dir_all(&container_memory_cgroup_dir)?;
-    }
+    trace!("Setup memory group - memory: {:?}, memory_swap: {:?}", memory, memory_swap);
 
-    File::create(container_memory_cgroup_dir.join("tasks"))?
-        .write_all(std::process::id().to_string().as_bytes())?;
+    let inner = || -> ContainerRuntimeResult<()> {
+        let container_memory_cgroup_dir = Path::new("/sys/fs/cgroup/memory").join("container_runtime").join(container_id);
+        if !container_memory_cgroup_dir.exists() {
+            std::fs::create_dir_all(&container_memory_cgroup_dir)?;
+        }
 
-    if let Some(memory) = memory {
-        File::create(container_memory_cgroup_dir.join("memory.limit_in_bytes"))?
-            .write_all(memory.to_string().as_bytes())?;
-    }
+        File::create(container_memory_cgroup_dir.join("tasks"))?
+            .write_all(std::process::id().to_string().as_bytes())?;
 
-    if let Some(memory_swap) = memory_swap {
-        File::create(container_memory_cgroup_dir.join("memory.memsw.limit_in_bytes"))?
-            .write_all(memory_swap.to_string().as_bytes())?
-    }
+        if let Some(memory) = memory {
+            File::create(container_memory_cgroup_dir.join("memory.limit_in_bytes"))?
+                .write_all(memory.to_string().as_bytes())?;
+        }
 
-    Ok(())
+        if let Some(memory_swap) = memory_swap {
+            File::create(container_memory_cgroup_dir.join("memory.memsw.limit_in_bytes"))?
+                .write_all(memory_swap.to_string().as_bytes())?
+        }
+
+        Ok(())
+    };
+
+    inner().map_err(|err| ContainerRuntimeError::FailedToSetupMemoryCgroup(err.to_string()))
 }
 
-fn create_mounts(new_root: &Path) -> ContainerRuntimeResult<()> {
-    mount(Some("proc"), &new_root.join("proc"), Some("proc"), 0, None)?;
-    mount(Some("sysfs"), &new_root.join("sys"), Some("sysfs"), 0, None)?;
-    mount(Some("tmpfs"), &new_root.join("dev"), Some("tmpfs"), libc::MS_NOSUID | libc::MS_STRICTATIME, Some("mode=755"))?;
+fn setup_network(network_namespace: &str, hostname: Option<String>) -> ContainerRuntimeResult<()> {
+    trace!("Setup network - namespace: {}, hostname: {:?}", network_namespace, hostname);
 
-    let devpts_path = new_root.join("dev").join("pts");
-    if !devpts_path.exists() {
-        std::fs::create_dir_all(&devpts_path).unwrap();
-        mount(Some("devpts"), &devpts_path, Some("devpts"), 0, None)?;
-    }
+    let inner = || -> ContainerRuntimeResult<()> {
+        let file = File::open(format!("/run/netns/{}", network_namespace))?;
+        unsafe {
+            wrap_libc_error(libc::setns(file.as_raw_fd(), libc::CLONE_NEWNET))?;
+        }
 
-    create_devices(&new_root.join("dev"))?;
-    Ok(())
+        if let Some(hostname) = hostname {
+            unsafe {
+                let hostname = CString::new(hostname).unwrap();
+                wrap_libc_error(libc::sethostname(hostname.as_ptr(), hostname.as_bytes().len()))?;
+            }
+        }
+
+        Ok(())
+    };
+
+    inner().map_err(|err| ContainerRuntimeError::FailedToSetupNetwork(err.to_string()))
+}
+
+fn setup_dns(new_root: &Path) -> ContainerRuntimeResult<()> {
+    let dns_server = "8.8.8.8";
+    trace!("Setup DNS - server: {}", dns_server);
+
+    let inner = || -> ContainerRuntimeResult<()> {
+        let mut dns_config = File::create(new_root.join("etc").join("resolv.conf"))?;
+        dns_config.write_all(format!("nameserver {}", dns_server).as_bytes())?;
+        Ok(())
+    };
+
+    inner().map_err(|err| ContainerRuntimeError::FailedToSetupDNS(err.to_string()))
+}
+
+fn setup_user(user: &User) -> ContainerRuntimeResult<()> {
+    trace!("Setup user - user: {:?}", user);
+
+    let inner = || -> ContainerRuntimeResult<()> {
+        if let Some(group_id) = user.group_id {
+            unsafe {
+                wrap_libc_error(libc::setgid(group_id as libc::gid_t))?;
+            }
+        }
+
+        unsafe {
+            wrap_libc_error(libc::setuid(user.id as libc::gid_t))?;
+        }
+        Ok(())
+    };
+
+    inner().map_err(|err| ContainerRuntimeError::FailedToSetupUser(err.to_string()))
+}
+
+fn setup_mounts(new_root: &Path) -> ContainerRuntimeResult<()> {
+    trace!("Setup mounts - new root: {}", new_root.to_str().unwrap());
+
+    let inner = || -> ContainerRuntimeResult<()> {
+        mount(Some("proc"), &new_root.join("proc"), Some("proc"), 0, None)?;
+        mount(Some("sysfs"), &new_root.join("sys"), Some("sysfs"), 0, None)?;
+        mount(Some("tmpfs"), &new_root.join("dev"), Some("tmpfs"), libc::MS_NOSUID | libc::MS_STRICTATIME, Some("mode=755"))?;
+
+        let devpts_path = new_root.join("dev").join("pts");
+        if !devpts_path.exists() {
+            std::fs::create_dir_all(&devpts_path).unwrap();
+            mount(Some("devpts"), &devpts_path, Some("devpts"), 0, None)?;
+        }
+
+        create_devices(&new_root.join("dev"))?;
+        Ok(())
+    };
+
+    inner().map_err(|err| ContainerRuntimeError::FailedToSetupMounts(err.to_string()))
 }
 
 fn create_devices(dev_path: &Path) -> ContainerRuntimeResult<()> {
@@ -362,9 +373,9 @@ fn create_devices(dev_path: &Path) -> ContainerRuntimeResult<()> {
     Ok(())
 }
 
-fn create_network_namespace(bridge_interface: &str, bridge_ip_address: &str, network_namespace: &str, namespace_ip_address: &str) -> ContainerRuntimeResult<()> {
+fn create_network_namespace(network: &BridgedNetworkSpec, network_namespace: &str) -> ContainerRuntimeResult<()> {
     let result = Command::new("bash")
-        .args(["create_network_namespace.sh", bridge_interface, bridge_ip_address, network_namespace, namespace_ip_address])
+        .args(["create_network_namespace.sh", &network.bridge_interface, &network.bridge_ip_address, network_namespace, &network.container_ip_address])
         .spawn().unwrap()
         .wait().unwrap();
 
@@ -386,84 +397,4 @@ fn destroy_network_namespace(network_namespace: &str) -> ContainerRuntimeResult<
     }
 
     Ok(())
-}
-
-#[derive(Debug, Clone)]
-struct User {
-    username: String,
-    id: i32,
-    group_id: Option<i32>,
-    home_folder: PathBuf
-}
-
-impl User {
-    pub fn from_passwd_file(passwd_path: &Path) -> ContainerRuntimeResult<HashMap<i32, User>> {
-        let mut users = HashMap::new();
-
-        if let Ok(mut file) = File::open(passwd_path) {
-            let mut content = String::new();
-            file.read_to_string(&mut content)?;
-
-            for line in content.lines() {
-                let parts = line.split(":").collect::<Vec<_>>();
-
-                if parts.len() >= 6 {
-                    let username = parts[0].to_owned();
-                    let user_id = i32::from_str(parts[2]).unwrap();
-                    let group_id = i32::from_str(parts[3]).unwrap();
-                    let home_folder = Path::new(parts[5]).to_owned();
-
-                    users.insert(
-                        user_id,
-                        User {
-                            username,
-                            id: user_id,
-                            group_id: Some(group_id),
-                            home_folder
-                        }
-                    );
-                }
-            }
-        }
-
-        Ok(users)
-    }
-}
-
-fn mount(src: Option<&str>, target: &Path, fstype: Option<&str>, flags: c_ulong, data: Option<&str>) -> ContainerRuntimeResult<()> {
-    let src = src.map(|x| CString::new(x).unwrap());
-    let target = CString::new(target.to_str().unwrap()).unwrap();
-    let fstype = fstype.map(|x| CString::new(x).unwrap());
-    let data = data.map(|x| CString::new(x).unwrap());
-
-    unsafe {
-        let result = libc::mount(
-            src.as_ref().map(|x| x.as_ptr() as *const _).unwrap_or(std::ptr::null()),
-            target.as_ptr() as *const _,
-            fstype.as_ref().map(|x| x.as_ptr() as *const _).unwrap_or(std::ptr::null()),
-            flags,
-            data.as_ref().map(|x| x.as_ptr() as *const _).unwrap_or(std::ptr::null())
-        );
-
-        if result == 0 {
-            Ok(())
-        } else {
-            Err(ContainerRuntimeError::Mount(extract_libc_error_message()))
-        }
-    }
-}
-
-fn wrap_libc_error(result: i32) -> ContainerRuntimeResult<i32> {
-    if result >= 0 {
-        Ok(result)
-    } else {
-        Err(ContainerRuntimeError::Libc(extract_libc_error_message()))
-    }
-}
-
-fn extract_libc_error_message() -> String {
-    unsafe {
-        let error_message = CStr::from_ptr(libc::strerror(*libc::__errno_location()));
-        error_message.to_str().unwrap().to_owned()
-    }
 }
