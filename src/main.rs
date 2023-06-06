@@ -1,3 +1,5 @@
+use std::net::Ipv4Addr;
+use std::str::FromStr;
 use uuid::Uuid;
 
 mod model;
@@ -15,10 +17,13 @@ fn main() {
     let image_base_dir = base_dir.join("images");
     let containers_base_dir = base_dir.join("containers");
 
+    let bridge_ip_address = Ipv4Addr::from_str("10.10.10.1").unwrap();
+    let bridge_cidr = "24";
+
     let bridge = BridgedNetworkSpec {
         bridge_interface: "cort0".to_string(),
-        bridge_ip_address: "10.10.10.1/24".to_string(),
-        container_ip_address: "10.10.10.2/24".to_string(),
+        bridge_ip_address: format!("{}/{}", bridge_ip_address, bridge_cidr),
+        container_ip_address: format!("{}/{}", network::find_free_ip_address(bridge_ip_address).unwrap(), bridge_cidr),
         hostname: None
     };
 

@@ -1,3 +1,4 @@
+use std::net::Ipv4Addr;
 use std::process::Command;
 
 use log::error;
@@ -66,4 +67,30 @@ fn destroy_network_namespace(network_namespace: &str) -> ContainerRuntimeResult<
     }
 
     Ok(())
+}
+
+pub fn find_free_ip_address(base_ip_address: Ipv4Addr) -> Option<Ipv4Addr> {
+    let mut next_ip_address_parts = base_ip_address.octets();
+    for _ in 0..1024 {
+        let next_ip_address = Ipv4Addr::new(next_ip_address_parts[0], next_ip_address_parts[1], next_ip_address_parts[2], next_ip_address_parts[3]);
+        if !is_ip_address_used(&next_ip_address.to_string()) {
+            return Some(next_ip_address);
+        }
+
+        next_ip_address_parts[3] += 1;
+        if next_ip_address_parts[3] == 0 {
+            next_ip_address_parts[2] += 1;
+        }
+    }
+
+    None
+}
+
+pub fn is_ip_address_used(ip_address: &str) -> bool {
+    let result = Command::new("ip")
+        .args(["addr", "show"])
+        .output().unwrap();
+
+    let output = String::from_utf8(result.stdout).unwrap();
+    output.contains(ip_address)
 }
