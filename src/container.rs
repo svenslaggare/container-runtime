@@ -26,12 +26,12 @@ pub fn run(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResult<()> 
             0
         }
 
-        let create_network_namespace = if network_namespace.is_some() {libc::CLONE_NEWNET} else {0};
+        let clone_network_namespace = if network_namespace.is_some() {libc::CLONE_NEWNET} else {0};
 
         wrap_libc_error(libc::clone(
             clone_callback,
             child_stack.as_mut_ptr().offset(child_stack.len() as isize) as *mut c_void,
-            libc::CLONE_NEWPID | libc::CLONE_NEWNS | libc::CLONE_NEWUTS | create_network_namespace | libc::SIGCHLD,
+            libc::CLONE_NEWPID | libc::CLONE_NEWNS | libc::CLONE_NEWUTS | clone_network_namespace | libc::SIGCHLD,
             run_container_spec as *const _ as *mut c_void
         )).unwrap()
     };
@@ -127,6 +127,7 @@ fn setup_container_root(new_root: &Path, working_dir: &Path) -> ContainerRuntime
 
     let inner = || -> ContainerRuntimeResult<()> {
         setup_mounts(&new_root)?;
+        setup_devices(&new_root.join("dev"))?;
 
         let old_root = new_root.join("old_root");
         std::fs::create_dir_all(&old_root)?;
@@ -250,14 +251,12 @@ fn setup_user(user: &User) -> ContainerRuntimeResult<()> {
     trace!("Setup user - user: {:?}", user);
 
     let inner = || -> ContainerRuntimeResult<()> {
-        if let Some(group_id) = user.group_id {
-            unsafe {
+        unsafe {
+            if let Some(group_id) = user.group_id {
                 wrap_libc_error(libc::setgid(group_id as libc::gid_t))?;
             }
-        }
 
-        unsafe {
-            wrap_libc_error(libc::setuid(user.id as libc::gid_t))?;
+            wrap_libc_error(libc::setuid(user.id as libc::uid_t))?;
         }
         Ok(())
     };
@@ -279,38 +278,43 @@ fn setup_mounts(new_root: &Path) -> ContainerRuntimeResult<()> {
             mount(Some("devpts"), &devpts_path, Some("devpts"), 0, None)?;
         }
 
-        create_devices(&new_root.join("dev"))?;
         Ok(())
     };
 
     inner().map_err(|err| ContainerRuntimeError::FailedToSetupMounts(err.to_string()))
 }
 
-fn create_devices(dev_path: &Path) -> ContainerRuntimeResult<()> {
-    for (i, dev) in ["stdin", "stdout", "stderr"].iter().enumerate() {
-        std::os::unix::fs::symlink(&format!("/proc/self/fd/{}", i), dev_path.join(dev))?;
-    }
+fn setup_devices(dev_path: &Path) -> ContainerRuntimeResult<()> {
+    trace!("Setup devices - dev path: {}", dev_path.to_str().unwrap());
 
-    let devices = [
-        ("null", (libc::S_IFCHR, 1, 3)),
-        ("zero", (libc::S_IFCHR, 1, 5)),
-        ("random", (libc::S_IFCHR, 1, 8)),
-        ("urandom", (libc::S_IFCHR, 1, 9)),
-        ("console", (libc::S_IFCHR, 136, 1)),
-        ("tty", (libc::S_IFCHR, 5, 0)),
-        ("full", (libc::S_IFCHR, 1, 7)),
-    ];
-
-    for (device, (device_type, major, minor)) in devices {
-        unsafe {
-            let pathname = CString::new(dev_path.join(device).to_str().unwrap()).unwrap();
-            wrap_libc_error(libc::mknod(
-                pathname.as_ptr(),
-                0o666 | device_type,
-                libc::makedev(major, minor)
-            ))?;
+    let inner = || -> ContainerRuntimeResult<()> {
+        for (i, dev) in ["stdin", "stdout", "stderr"].iter().enumerate() {
+            std::os::unix::fs::symlink(&format!("/proc/self/fd/{}", i), dev_path.join(dev))?;
         }
-    }
 
-    Ok(())
+        let devices = [
+            ("null", (libc::S_IFCHR, 1, 3)),
+            ("zero", (libc::S_IFCHR, 1, 5)),
+            ("random", (libc::S_IFCHR, 1, 8)),
+            ("urandom", (libc::S_IFCHR, 1, 9)),
+            ("console", (libc::S_IFCHR, 136, 1)),
+            ("tty", (libc::S_IFCHR, 5, 0)),
+            ("full", (libc::S_IFCHR, 1, 7)),
+        ];
+
+        for (device, (device_type, major, minor)) in devices {
+            unsafe {
+                let pathname = CString::new(dev_path.join(device).to_str().unwrap()).unwrap();
+                wrap_libc_error(libc::mknod(
+                    pathname.as_ptr(),
+                    0o666 | device_type,
+                    libc::makedev(major, minor),
+                ))?;
+            }
+        }
+
+        Ok(())
+    };
+
+    inner().map_err(|err| ContainerRuntimeError::FailedToSetupDevices(err.to_string()))
 }

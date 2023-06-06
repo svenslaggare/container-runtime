@@ -28,6 +28,8 @@ pub enum ContainerRuntimeError {
     FailedToSetupContainerRoot(String),
     #[error("Failed to setup mounts: {0}")]
     FailedToSetupMounts(String),
+    #[error("Failed to setup devices: {0}")]
+    FailedToSetupDevices(String),
 
     #[error("User not found: {0:?}")]
     InvalidUser(UserSpec),
