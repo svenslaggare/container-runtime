@@ -18,7 +18,7 @@ fn main() {
     let image_base_dir = base_dir.join("images");
     let containers_base_dir = base_dir.join("containers");
 
-    let bridge_ip_address = Ipv4Net::from_str("10.10.10.1/24").unwrap();
+    let bridge_ip_address = Ipv4Net::from_str("10.10.10.1/16").unwrap();
 
     let bridge = BridgeNetworkSpec {
         physical_interface: "enp3s0".to_string(),
