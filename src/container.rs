@@ -74,10 +74,6 @@ fn execute(spec: &RunContainerSpec) -> ContainerRuntimeResult<()> {
         .map(|user| user.home_folder.clone())
         .unwrap_or(Path::new("/").to_owned());
 
-    if let Some(user) = user.as_ref() {
-        std::env::set_var("HOME", user.home_folder.to_str().unwrap());
-    }
-
     setup_container_root(&new_root, &working_dir)?;
 
     if let Some(user) = user.as_ref() {
@@ -247,6 +243,8 @@ fn setup_user(user: &User) -> ContainerRuntimeResult<()> {
     trace!("Setup user - user: {:?}", user);
 
     let inner = || -> ContainerRuntimeResult<()> {
+        std::env::set_var("HOME", user.home_folder.to_str().unwrap());
+
         unsafe {
             if let Some(group_id) = user.group_id {
                 wrap_libc_error(libc::setgid(group_id as libc::gid_t))?;

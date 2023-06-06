@@ -43,8 +43,8 @@ fn main() {
         command: vec!["/bin/bash".to_owned()],
         network: NetworkSpec::Bridged(bridged),
         // network: NetworkSpec::Host,
-        // user: Some(UserSpec::Name("ubuntu".to_owned())),
-        user: None,
+        user: Some(UserSpec::Name("ubuntu".to_owned())),
+        // user: None,
         cpu_shares: Some(256),
         memory: Some(1024 * 1024),
         memory_swap: None
