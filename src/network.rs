@@ -95,8 +95,10 @@ pub fn find_free_ip_address(base_ip_address: Ipv4Net) -> Option<Ipv4Net> {
 
     let mut next_ip_address = base_ip_address;
     for _ in 0..base_ip_address.subnet_size() {
-        if !check_is_ip_address_used(next_ip_address) {
-            return Some(next_ip_address);
+        if !next_ip_address.is_broadcast() && !next_ip_address.is_network() {
+            if !check_is_ip_address_used(next_ip_address) {
+                return Some(next_ip_address);
+            }
         }
 
         next_ip_address = next_ip_address.next();
