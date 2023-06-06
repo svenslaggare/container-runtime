@@ -17,8 +17,8 @@ fn main() {
 
     let bridge = BridgedNetworkSpec {
         bridge_interface: "cort0".to_string(),
-        bridge_ip_address: "10.10.10.40/2".to_string(),
-        container_ip_address: "10.10.10.10/24".to_string(),
+        bridge_ip_address: "10.10.10.1/24".to_string(),
+        container_ip_address: "10.10.10.2/24".to_string(),
         hostname: None
     };
 
