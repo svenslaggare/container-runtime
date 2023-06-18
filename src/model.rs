@@ -35,6 +35,8 @@ pub enum ContainerRuntimeError {
 
     #[error("User not found: {0:?}")]
     InvalidUser(UserSpec),
+    #[error("No free IP address found in network")]
+    NetworkFull,
 
     #[error("IP command failure: {0}")]
     IPCommand(String),

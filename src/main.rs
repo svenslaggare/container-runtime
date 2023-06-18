@@ -28,12 +28,7 @@ fn main() {
 
     network::create_bridge(&bridge).unwrap();
 
-    let bridged = BridgedNetworkSpec {
-        bridge_interface: bridge.interface.clone(),
-        bridge_ip_address: bridge.ip_address.clone(),
-        container_ip_address: network::find_free_ip_address(bridge_ip_address).unwrap(),
-        hostname: None
-    };
+    let bridged = BridgedNetworkSpec::from_bridge(&bridge).unwrap();
 
     let run_container_spec = RunContainerSpec {
         image_base_dir,

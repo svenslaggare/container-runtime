@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::model::{ContainerRuntimeError, ContainerRuntimeResult, User};
+use crate::network;
 use crate::network::Ipv4Net;
 
 #[derive(Debug, Clone)]
@@ -127,4 +128,17 @@ pub struct BridgedNetworkSpec {
     pub bridge_ip_address: Ipv4Net,
     pub container_ip_address: Ipv4Net,
     pub hostname: Option<String>
+}
+
+impl BridgedNetworkSpec {
+    pub fn from_bridge(bridge: &BridgeNetworkSpec) -> ContainerRuntimeResult<BridgedNetworkSpec> {
+        Ok(
+            BridgedNetworkSpec {
+                bridge_interface: bridge.interface.clone(),
+                bridge_ip_address: bridge.ip_address.clone(),
+                container_ip_address: network::find_free_ip_address(bridge.ip_address).ok_or_else(|| ContainerRuntimeError::NetworkFull)?,
+                hostname: None
+            }
+        )
+    }
 }
