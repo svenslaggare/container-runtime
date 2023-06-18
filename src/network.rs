@@ -54,7 +54,7 @@ impl NetworkNamespace {
 impl Drop for NetworkNamespace {
     fn drop(&mut self) {
         if let Err(err) = destroy_network_namespace(&self.name) {
-            error!("Failed to destroy network namespace: {}", err);
+            error!("Failed to destroy network namespace: {}", err.to_string());
         }
     }
 }

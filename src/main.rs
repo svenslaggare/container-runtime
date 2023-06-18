@@ -6,6 +6,7 @@ mod spec;
 mod container;
 mod network;
 mod linux;
+mod helpers;
 
 use crate::network::Ipv4Net;
 use crate::spec::{BridgedNetworkSpec, BridgeNetworkSpec, NetworkSpec, RunContainerSpec, UserSpec};

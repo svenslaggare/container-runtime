@@ -4,9 +4,10 @@ use std::io::Write;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 
-use log::{info, trace};
+use log::{error, info, trace};
 
-use crate::linux::{exec, mount, wrap_libc_error};
+use crate::helpers::RemoveDirGuard;
+use crate::linux::{exec, mount, waitpid, wrap_libc_error};
 use crate::model::{ContainerRuntimeError, ContainerRuntimeResult, User};
 use crate::network::NetworkNamespace;
 use crate::spec::{NetworkSpec, RunContainerSpec};
@@ -14,6 +15,7 @@ use crate::spec::{NetworkSpec, RunContainerSpec};
 pub fn run(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResult<()> {
     let mut child_stack = vec![0u8; 64 * 1024];
 
+    let _remove_container_root = RemoveDirGuard::new(run_container_spec.container_root());
     let network_namespace = if let NetworkSpec::Bridged(bridged) = &run_container_spec.network {
         Some(NetworkNamespace::create(run_container_spec.network_namespace().unwrap(), bridged)?)
     } else {
@@ -22,8 +24,12 @@ pub fn run(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResult<()> 
 
     let pid = unsafe {
         extern "C" fn clone_callback(args: *mut c_void) -> c_int {
-            execute(unsafe { &*(args as *const RunContainerSpec) }).unwrap();
-            0
+            if let Err(err) = execute(unsafe { &*(args as *const RunContainerSpec) }) {
+                error!("Container execute failed due to: {}", err.to_string());
+                -1
+            } else {
+                0
+            }
         }
 
         let clone_network_namespace = if network_namespace.is_some() {libc::CLONE_NEWNET} else {0};
@@ -33,17 +39,11 @@ pub fn run(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResult<()> 
             child_stack.as_mut_ptr().offset(child_stack.len() as isize) as *mut c_void,
             libc::CLONE_NEWPID | libc::CLONE_NEWNS | libc::CLONE_NEWUTS | clone_network_namespace | libc::SIGCHLD,
             run_container_spec as *const _ as *mut c_void
-        )).unwrap()
-    };
+        ))
+    }?;
 
-    let status = unsafe {
-        let mut status = 0;
-        wrap_libc_error(libc::waitpid(pid, &mut status as *mut c_int, 0))?;
-        status
-    };
-
-    info!("PID {} exited with status {}", pid, status);
-    std::fs::remove_dir_all(run_container_spec.container_root())?;
+    let status = waitpid(pid)?;
+    info!("PID {} exited with status {}.", pid, status);
 
     Ok(())
 }

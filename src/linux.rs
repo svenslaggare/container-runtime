@@ -1,4 +1,4 @@
-use std::ffi::{c_ulong, CStr, CString};
+use std::ffi::{c_int, c_ulong, CStr, CString};
 use std::path::Path;
 
 use crate::model::{ContainerRuntimeError, ContainerRuntimeResult};
@@ -37,6 +37,14 @@ pub fn exec(command: &Vec<String>) -> ContainerRuntimeResult<()> {
         } else {
             Err(ContainerRuntimeError::Execute(extract_libc_error_message()))
         }
+    }
+}
+
+pub fn waitpid(pid: i32) -> ContainerRuntimeResult<i32> {
+     unsafe {
+        let mut status = 0;
+        wrap_libc_error(libc::waitpid(pid, &mut status as *mut c_int, 0))?;
+        Ok(status)
     }
 }
 
