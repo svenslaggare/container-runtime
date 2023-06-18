@@ -1,24 +1,38 @@
+use std::ffi::OsStr;
 use std::fmt::{Display};
 use std::net::Ipv4Addr;
 use std::process::Command;
 use std::str::FromStr;
 
-use log::error;
+use log::{error, info};
 
 use crate::model::{ContainerRuntimeError, ContainerRuntimeResult};
 use crate::spec::{BridgedNetworkSpec, BridgeNetworkSpec};
 
 pub fn create_bridge(bridge: &BridgeNetworkSpec) -> ContainerRuntimeResult<()> {
-    let result = Command::new("bash")
-        .args(["scripts/try_create_bridge.sh", &bridge.physical_interface, &bridge.interface, &bridge.ip_address.to_string()])
-        .spawn().unwrap()
-        .wait().unwrap();
+    if ip_command(["link", "show", &bridge.interface]).is_err() {
+        let inner = || -> ContainerRuntimeResult<()> {
+            ip_command(["link", "add", "name", &bridge.interface, "type", "bridge"])?;
+            ip_command(["link", "set", "dev", &bridge.interface, "up"])?;
+            ip_command(["addr", "add", &bridge.ip_address.to_string(), "dev", &bridge.interface])?;
 
-    if !result.success() {
-        return Err(ContainerRuntimeError::CreateNetworkBridge);
+            std::fs::write("/proc/sys/net/ipv4/ip_forward", "1")?;
+
+            iptables_command(["-P", "FORWARD", "DROP"])?;
+            iptables_command(["-F", "FORWARD"])?;
+            iptables_command(["-t", "nat", "-F"])?;
+            iptables_command(["-t", "nat", "-A", "POSTROUTING", "-s", &bridge.ip_address.to_string(), "-o", &bridge.physical_interface, "-j", "MASQUERADE"])?;
+            iptables_command(["-A", "FORWARD", "-i", &bridge.physical_interface, "-o", &bridge.interface, "-j", "ACCEPT"])?;
+            iptables_command(["-A", "FORWARD", "-o", &bridge.physical_interface, "-i", &bridge.interface, "-j", "ACCEPT"])?;
+
+            info!("Created network bridge '{}' with IP {} using physical interface {}.", bridge.interface, bridge.ip_address, bridge.physical_interface);
+            Ok(())
+        };
+
+        inner().map_err(|err| ContainerRuntimeError::CreateNetworkBridge(err.to_string()))
+    } else {
+        Ok(())
     }
-
-    Ok(())
 }
 
 pub struct NetworkNamespace {
@@ -46,35 +60,37 @@ impl Drop for NetworkNamespace {
 }
 
 fn create_network_namespace(bridge: &BridgedNetworkSpec, network_namespace: &str) -> ContainerRuntimeResult<()> {
-    let result = Command::new("bash")
-        .args([
-            "scripts/create_network_namespace.sh",
-            &bridge.bridge_interface,
-            &bridge.bridge_ip_address.to_string(),
-            network_namespace,
-            &bridge.container_ip_address.to_string()
-        ])
-        .spawn().unwrap()
-        .wait().unwrap();
+    let inner = || -> ContainerRuntimeResult<()> {
+        let host_interface = format!("{}-host", network_namespace);
+        let namespace_interface = format!("{}-ns", network_namespace);
 
-    if !result.success() {
-        return Err(ContainerRuntimeError::CreateNetworkNamespace);
-    }
+        ip_command(["netns", "add", network_namespace])?;
 
-    Ok(())
+        ip_command(["link", "add", &host_interface, "type", "veth", "peer", "name", &namespace_interface])?;
+        ip_command(["link", "set", "dev", &host_interface, "master", &bridge.bridge_interface])?;
+        ip_command(["link", "set", "dev", &namespace_interface, "master", &bridge.bridge_interface])?;
+
+        ip_command(["link", "set", "dev", &host_interface, "up"])?;
+
+        ip_command(["link", "set", &namespace_interface, "netns", network_namespace])?;
+        ip_command(["netns", "exec", network_namespace, "ip", "addr", "add", &bridge.container_ip_address.to_string(), "dev", &namespace_interface])?;
+        ip_command(["netns", "exec", network_namespace, "ip", "link", "set", "dev", &namespace_interface, "up"])?;
+        ip_command(["netns", "exec", network_namespace, "ip", "link", "set", "dev", "lo", "up"])?;
+        ip_command(["-n", network_namespace, "route", "add", "default", "via", &bridge.bridge_ip_address.address.to_string()])?;
+        Ok(())
+    };
+
+    inner().map_err(|err| ContainerRuntimeError::CreateNetworkNamespace(err.to_string()))
 }
 
 fn destroy_network_namespace(network_namespace: &str) -> ContainerRuntimeResult<()> {
-    let result = Command::new("bash")
-        .args(["scripts/destroy_network_namespace.sh", &network_namespace])
-        .spawn().unwrap()
-        .wait().unwrap();
+    let inner = || -> ContainerRuntimeResult<()> {
+        ip_command(["netns", "del", network_namespace])?;
+        ip_command(["link", "del", &format!("{}-host", network_namespace)])?;
+        Ok(())
+    };
 
-    if !result.success() {
-        return Err(ContainerRuntimeError::CreateNetworkNamespace);
-    }
-
-    Ok(())
+    inner().map_err(|err| ContainerRuntimeError::DestroyNetworkNamespace(err.to_string()))
 }
 
 pub fn find_free_ip_address(base_ip_address: Ipv4Net) -> Option<Ipv4Net> {
@@ -206,6 +222,33 @@ impl FromStr for Ipv4Net {
         Ok(Ipv4Net::new(address, subnet_cidr))
     }
 }
+
+fn ip_command<I, S>(args: I) -> ContainerRuntimeResult<()> where I: IntoIterator<Item = S>, S: AsRef<OsStr> {
+    let result = Command::new("ip")
+        .args(args)
+        .output()
+        .unwrap();
+
+    if !result.status.success() {
+        return Err(ContainerRuntimeError::IPCommand(String::from_utf8(result.stderr).unwrap()));
+    }
+
+    Ok(())
+}
+
+fn iptables_command<I, S>(args: I) -> ContainerRuntimeResult<()> where I: IntoIterator<Item = S>, S: AsRef<OsStr> {
+    let result = Command::new("iptables")
+        .args(args)
+        .output()
+        .unwrap();
+
+    if !result.status.success() {
+        return Err(ContainerRuntimeError::IPTablesCommand(String::from_utf8(result.stderr).unwrap()));
+    }
+
+    Ok(())
+}
+
 
 #[test]
 fn test_ipv4net_from_str() {

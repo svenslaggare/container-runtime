@@ -10,10 +10,12 @@ use crate::spec::UserSpec;
 
 #[derive(Error, Debug)]
 pub enum ContainerRuntimeError {
-    #[error("Failed to create network bridge")]
-    CreateNetworkBridge,
-    #[error("Failed to create network namespace")]
-    CreateNetworkNamespace,
+    #[error("Failed to create network bridge: {0}")]
+    CreateNetworkBridge(String),
+    #[error("Failed to create network namespace: {0}")]
+    CreateNetworkNamespace(String),
+    #[error("Failed to destroy network namespace: {0}")]
+    DestroyNetworkNamespace(String),
     #[error("Failed to setup cpu cgroup: {0}")]
     SetupCpuCgroup(String),
     #[error("Failed to setup memory cgroup: {0}")]
@@ -34,6 +36,10 @@ pub enum ContainerRuntimeError {
     #[error("User not found: {0:?}")]
     InvalidUser(UserSpec),
 
+    #[error("IP command failure: {0}")]
+    IPCommand(String),
+    #[error("IPTables command failure: {0}")]
+    IPTablesCommand(String),
     #[error("Failed to mount: {0}")]
     Mount(String),
     #[error("Failed to execute: {0}")]

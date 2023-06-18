@@ -4,7 +4,7 @@ use std::io::Write;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 
-use log::trace;
+use log::{info, trace};
 
 use crate::linux::{exec, mount, wrap_libc_error};
 use crate::model::{ContainerRuntimeError, ContainerRuntimeResult, User};
@@ -42,7 +42,7 @@ pub fn run(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResult<()> 
         status
     };
 
-    println!("PID {} exited with status {}", pid, status);
+    info!("PID {} exited with status {}", pid, status);
     std::fs::remove_dir_all(run_container_spec.container_root())?;
 
     Ok(())
@@ -59,7 +59,7 @@ fn execute(spec: &RunContainerSpec) -> ContainerRuntimeResult<()> {
     mount(None, Path::new("/"), None, libc::MS_PRIVATE | libc::MS_REC, None)?;
 
     let new_root = create_container_root(&spec.image_root(), &spec.container_root())?;
-    println!("Container root: {}", new_root.to_str().unwrap());
+    info!("Container root: {}", new_root.to_str().unwrap());
 
     setup_dns(&new_root)?;
 

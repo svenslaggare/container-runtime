@@ -1,14 +1,13 @@
 use std::str::FromStr;
 use uuid::Uuid;
 
-use crate::network::Ipv4Net;
-
 mod model;
 mod spec;
 mod container;
 mod network;
 mod linux;
 
+use crate::network::Ipv4Net;
 use crate::spec::{BridgedNetworkSpec, BridgeNetworkSpec, NetworkSpec, RunContainerSpec, UserSpec};
 
 fn main() {
