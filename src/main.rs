@@ -1,5 +1,9 @@
 use std::str::FromStr;
+use log::error;
 use uuid::Uuid;
+
+use structopt::StructOpt;
+use crate::model::ContainerRuntimeResult;
 
 mod model;
 mod spec;
@@ -12,40 +16,95 @@ use crate::network::Ipv4Net;
 use crate::spec::{BridgedNetworkSpec, BridgeNetworkSpec, NetworkSpec, RunContainerSpec, UserSpec};
 
 fn main() {
+    let console_config: ConsoleConfig = ConsoleConfig::from_args();
+    if let Err(err) = run(console_config) {
+        error!("Failure: {}", err.to_string());
+        std::process::exit(1);
+    }
+}
+
+fn run(console_config: ConsoleConfig) -> ContainerRuntimeResult<()> {
     setup_logging().unwrap();
 
     let base_dir = std::env::current_dir().unwrap();
     let image_base_dir = base_dir.join("images");
     let containers_base_dir = base_dir.join("containers");
 
-    let bridge_ip_address = Ipv4Net::from_str("10.10.1.1/16").unwrap();
+    let network = match console_config.network {
+        Network::Host => {
+            NetworkSpec::Host
+        }
+        Network::Bridge => {
+            let bridge = BridgeNetworkSpec {
+                physical_interface: "enp3s0".to_string(),
+                interface: "cort0".to_string(),
+                ip_address: Ipv4Net::from_str("10.10.1.1/16").unwrap()
+            };
 
-    let bridge = BridgeNetworkSpec {
-        physical_interface: "enp3s0".to_string(),
-        interface: "cort0".to_string(),
-        ip_address: bridge_ip_address
+            network::create_bridge(&bridge)?;
+            let mut bridged = BridgedNetworkSpec::from_bridge(&bridge)?;
+            bridged.hostname = console_config.hostname;
+
+            NetworkSpec::Bridged(bridged)
+        }
     };
-
-    network::create_bridge(&bridge).unwrap();
-
-    let bridged = BridgedNetworkSpec::from_bridge(&bridge).unwrap();
 
     let run_container_spec = RunContainerSpec {
         image_base_dir,
         containers_base_dir,
-        id: Uuid::new_v4().to_string(),
-        image: "ubuntu".to_string(),
-        command: vec!["/bin/bash".to_owned()],
-        network: NetworkSpec::Bridged(bridged),
-        // network: NetworkSpec::Host,
-        user: Some(UserSpec::Name("ubuntu".to_owned())),
-        // user: None,
+        id: console_config.name.unwrap_or_else(|| Uuid::new_v4().to_string()),
+        image: console_config.image,
+        command: console_config.command,
+        network,
+        user: console_config.user.map(|user| UserSpec::Name(user)),
         cpu_shares: Some(256),
-        memory: Some(1024 * 1024),
+        memory: Some(1024 * 1024 * 1024),
         memory_swap: None
     };
 
-    container::run(&run_container_spec).unwrap();
+    container::run(&run_container_spec)?;
+    Ok(())
+}
+
+#[derive(Debug, StructOpt)]
+#[structopt(name="cort", about="Container runtime")]
+struct ConsoleConfig {
+    /// The name of the container
+    #[structopt(long)]
+    name: Option<String>,
+    /// The user to use
+    #[structopt(short, long)]
+    user: Option<String>,
+    /// The network type to use
+    #[structopt(short, long="net", default_value="bridge")]
+    network: Network,
+    /// The hostname to use
+    #[structopt(long)]
+    hostname: Option<String>,
+    /// The image to run
+    #[structopt()]
+    image: String,
+    /// The command to run
+    #[structopt()]
+    command: Vec<String>,
+}
+
+#[derive(Debug)]
+enum Network {
+    Host,
+    Bridge
+}
+
+impl FromStr for Network {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        match text {
+            "host" => Ok(Network::Host),
+            "bridge" => Ok(Network::Bridge),
+            _ => Err("Invalid network mode.".to_owned())
+        }
+    }
 }
 
 fn setup_logging() -> Result<(), log::SetLoggerError> {
