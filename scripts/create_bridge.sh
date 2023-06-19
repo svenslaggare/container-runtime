@@ -20,5 +20,6 @@ iptables -P FORWARD DROP
 iptables -F FORWARD
 iptables -t nat -F
 iptables -t nat -A POSTROUTING -s $bridge_ip_address -o $host_phy_interface -j MASQUERADE
+iptables -A FORWARD -o $bridge_interface -i $bridge_interface -j ACCEPT
 iptables -A FORWARD -i $host_phy_interface -o $bridge_interface -j ACCEPT
 iptables -A FORWARD -o $host_phy_interface -i $bridge_interface -j ACCEPT

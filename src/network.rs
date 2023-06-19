@@ -22,6 +22,7 @@ pub fn create_bridge(bridge: &BridgeNetworkSpec) -> ContainerRuntimeResult<()> {
             iptables_command(["-F", "FORWARD"])?;
             iptables_command(["-t", "nat", "-F"])?;
             iptables_command(["-t", "nat", "-A", "POSTROUTING", "-s", &bridge.ip_address.to_string(), "-o", &bridge.physical_interface, "-j", "MASQUERADE"])?;
+            iptables_command(["-A", "FORWARD", "-i", &bridge.interface, "-o", &bridge.interface, "-j", "ACCEPT"])?;
             iptables_command(["-A", "FORWARD", "-i", &bridge.physical_interface, "-o", &bridge.interface, "-j", "ACCEPT"])?;
             iptables_command(["-A", "FORWARD", "-o", &bridge.physical_interface, "-i", &bridge.interface, "-j", "ACCEPT"])?;
 
