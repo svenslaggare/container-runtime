@@ -95,25 +95,25 @@ fn destroy_network_namespace(network_namespace: &str) -> ContainerRuntimeResult<
 }
 
 pub fn find_free_ip_address(base_ip_address: Ipv4Net) -> Option<Ipv4Net> {
-    let network_namespaces = find_container_network_namespaces();
-    let check_is_ip_address_used = |ip_address: Ipv4Net| {
-        if is_ip_address_used(&ip_address, None) {
-            return true;
+    let network_namespaces = find_container_network_namespaces().ok()?;
+    let check_is_ip_address_used = |ip_address: Ipv4Net| -> ContainerRuntimeResult<bool> {
+        if is_ip_address_used(&ip_address, None)? {
+            return Ok(true);
         }
 
         for namespace in &network_namespaces {
-            if is_ip_address_used(&ip_address, Some(namespace)) {
-                return true;
+            if is_ip_address_used(&ip_address, Some(namespace))? {
+                return Ok(true);
             }
         }
 
-        false
+        Ok(false)
     };
 
     let mut next_ip_address = base_ip_address;
     for _ in 0..base_ip_address.subnet_size() {
         if !next_ip_address.is_broadcast() && !next_ip_address.is_network() {
-            if !check_is_ip_address_used(next_ip_address) {
+            if !check_is_ip_address_used(next_ip_address).ok()? {
                 return Some(next_ip_address);
             }
         }
@@ -124,32 +124,24 @@ pub fn find_free_ip_address(base_ip_address: Ipv4Net) -> Option<Ipv4Net> {
     None
 }
 
-fn find_container_network_namespaces() -> Vec<String> {
-    let result = Command::new("ip")
-        .args(["netns", "list"])
-        .output().unwrap();
-
-    let output = String::from_utf8(result.stdout).unwrap();
-    output
-        .lines()
-        .map(|line| line.split(" ").next().unwrap().to_owned())
-        .filter(|namespace| namespace.starts_with("cort-"))
-        .collect()
+fn find_container_network_namespaces() -> ContainerRuntimeResult<Vec<String>> {
+    Ok(
+        ip_command(["netns", "list"])?
+            .lines()
+            .map(|line| line.split(" ").next().unwrap().to_owned())
+            .filter(|namespace| namespace.starts_with("cort-"))
+            .collect()
+    )
 }
 
-fn is_ip_address_used(ip_address: &Ipv4Net, namespace: Option<&str>) -> bool {
+fn is_ip_address_used(ip_address: &Ipv4Net, namespace: Option<&str>) -> ContainerRuntimeResult<bool> {
     let arguments = if let Some(namespace) = namespace {
         vec!["netns", "exec", namespace, "ip", "addr", "show"]
     } else {
         vec!["addr", "show"]
     };
 
-    let result = Command::new("ip")
-        .args(arguments)
-        .output().unwrap();
-
-    let output = String::from_utf8(result.stdout).unwrap();
-    output.contains(&ip_address.to_string())
+    Ok(ip_command(arguments)?.contains(&ip_address.to_string()))
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -224,7 +216,7 @@ impl FromStr for Ipv4Net {
     }
 }
 
-fn ip_command<I, S>(args: I) -> ContainerRuntimeResult<()> where I: IntoIterator<Item = S>, S: AsRef<OsStr> {
+fn ip_command<I, S>(args: I) -> ContainerRuntimeResult<String> where I: IntoIterator<Item = S>, S: AsRef<OsStr> {
     let result = Command::new("ip")
         .args(args)
         .output()
@@ -234,10 +226,10 @@ fn ip_command<I, S>(args: I) -> ContainerRuntimeResult<()> where I: IntoIterator
         return Err(ContainerRuntimeError::IPCommand(String::from_utf8(result.stderr).unwrap()));
     }
 
-    Ok(())
+    Ok(String::from_utf8(result.stdout).unwrap())
 }
 
-fn iptables_command<I, S>(args: I) -> ContainerRuntimeResult<()> where I: IntoIterator<Item = S>, S: AsRef<OsStr> {
+fn iptables_command<I, S>(args: I) -> ContainerRuntimeResult<String> where I: IntoIterator<Item = S>, S: AsRef<OsStr> {
     let result = Command::new("iptables")
         .args(args)
         .output()
@@ -247,7 +239,7 @@ fn iptables_command<I, S>(args: I) -> ContainerRuntimeResult<()> where I: IntoIt
         return Err(ContainerRuntimeError::IPTablesCommand(String::from_utf8(result.stderr).unwrap()));
     }
 
-    Ok(())
+    Ok(String::from_utf8(result.stdout).unwrap())
 }
 
 

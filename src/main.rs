@@ -1,9 +1,8 @@
 use std::str::FromStr;
+
 use log::error;
 use uuid::Uuid;
-
 use structopt::StructOpt;
-use crate::model::ContainerRuntimeResult;
 
 mod model;
 mod spec;
@@ -14,6 +13,7 @@ mod helpers;
 
 use crate::network::Ipv4Net;
 use crate::spec::{BridgedNetworkSpec, BridgeNetworkSpec, NetworkSpec, RunContainerSpec, UserSpec};
+use crate::model::ContainerRuntimeResult;
 
 fn main() {
     let console_config: ConsoleConfig = ConsoleConfig::from_args();
@@ -76,7 +76,7 @@ struct ConsoleConfig {
     #[structopt(short, long)]
     user: Option<String>,
     /// The network type to use
-    #[structopt(short, long="net", default_value="bridge")]
+    #[structopt(long="net", default_value="bridge")]
     network: Network,
     /// The hostname to use
     #[structopt(long)]
