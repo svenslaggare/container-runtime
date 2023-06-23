@@ -13,7 +13,7 @@ use crate::network::NetworkNamespace;
 use crate::spec::{NetworkSpec, RunContainerSpec};
 
 pub fn run(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResult<()> {
-    let mut child_stack = vec![0u8; 64 * 1024];
+    let mut child_stack = vec![0u8; 32 * 1024];
 
     let _remove_container_root = RemoveDirGuard::new(run_container_spec.container_root());
     let network_namespace = if let NetworkSpec::Bridged(bridged) = &run_container_spec.network {
@@ -24,7 +24,8 @@ pub fn run(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResult<()> 
 
     let pid = unsafe {
         extern "C" fn clone_callback(args: *mut c_void) -> c_int {
-            if let Err(err) = execute(unsafe { &*(args as *const RunContainerSpec) }) {
+            let args = args as *const RunContainerSpec;
+            if let Err(err) = execute(unsafe { &*args }) {
                 error!("Container execute failed due to: {}", err.to_string());
                 -1
             } else {
