@@ -16,6 +16,7 @@ pub enum ContainerRuntimeError {
     CreateNetworkNamespace(String),
     #[error("Failed to destroy network namespace: {0}")]
     DestroyNetworkNamespace(String),
+
     #[error("Failed to setup cpu cgroup: {0}")]
     SetupCpuCgroup(String),
     #[error("Failed to setup memory cgroup: {0}")]
@@ -46,6 +47,7 @@ pub enum ContainerRuntimeError {
     Mount(String),
     #[error("Failed to execute: {0}")]
     Execute(String),
+
     #[error("I/O error: {0}")]
     IO(#[from] std::io::Error),
     #[error("Libc error: {0}")]

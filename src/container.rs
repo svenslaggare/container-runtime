@@ -43,6 +43,7 @@ pub fn run(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResult<()> 
         ))
     }?;
 
+    info!("Running container as PID {}.", pid);
     let status = waitpid(pid)?;
     info!("PID {} exited with status {}.", pid, status);
 
@@ -229,8 +230,7 @@ fn setup_dns(new_root: &Path) -> ContainerRuntimeResult<()> {
     trace!("Setup DNS - server: {}", dns_server);
 
     let inner = || -> ContainerRuntimeResult<()> {
-        let mut dns_config = File::create(new_root.join("etc").join("resolv.conf"))?;
-        dns_config.write_all(format!("nameserver {}", dns_server).as_bytes())?;
+        std::fs::write(new_root.join("etc").join("resolv.conf"), format!("nameserver {}", dns_server))?;
         Ok(())
     };
 
