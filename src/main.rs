@@ -36,7 +36,7 @@ fn run(console_config: ConsoleConfig) -> ContainerRuntimeResult<()> {
         }
         Network::Bridge => {
             let bridge = BridgeNetworkSpec {
-                physical_interface: network::find_internet_interface()?,
+                physical_interface: Some(network::find_internet_interface()?),
                 interface: "cort0".to_string(),
                 ip_address: Ipv4Net::from_str("10.10.1.1/16").unwrap()
             };

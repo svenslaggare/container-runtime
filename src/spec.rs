@@ -112,9 +112,9 @@ impl UserSpec {
 
 #[derive(Debug, Clone)]
 pub struct BridgeNetworkSpec {
-    pub physical_interface: String,
+    pub physical_interface: Option<String>,
     pub interface: String,
-    pub ip_address: Ipv4Net,
+    pub ip_address: Ipv4Net
 }
 
 #[derive(Debug, Clone)]

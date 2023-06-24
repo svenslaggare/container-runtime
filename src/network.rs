@@ -23,11 +23,14 @@ pub fn create_bridge(bridge: &BridgeNetworkSpec) -> ContainerRuntimeResult<()> {
             iptables_command(["-t", "nat", "-F"])?;
             iptables_command(["-A", "FORWARD", "-i", &bridge.interface, "-o", &bridge.interface, "-j", "ACCEPT"])?;
 
-            iptables_command(["-t", "nat", "-A", "POSTROUTING", "-s", &bridge.ip_address.to_string(), "-o", &bridge.physical_interface, "-j", "MASQUERADE"])?;
-            iptables_command(["-A", "FORWARD", "-i", &bridge.physical_interface, "-o", &bridge.interface, "-j", "ACCEPT"])?;
-            iptables_command(["-A", "FORWARD", "-o", &bridge.physical_interface, "-i", &bridge.interface, "-j", "ACCEPT"])?;
+            if let Some(physical_interface) = &bridge.physical_interface {
+                iptables_command(["-t", "nat", "-A", "POSTROUTING", "-s", &bridge.ip_address.to_string(), "-o", physical_interface, "-j", "MASQUERADE"])?;
+                iptables_command(["-A", "FORWARD", "-i", physical_interface, "-o", &bridge.interface, "-j", "ACCEPT"])?;
+                iptables_command(["-A", "FORWARD", "-o", physical_interface, "-i", &bridge.interface, "-j", "ACCEPT"])?;
+            }
 
-            info!("Created network bridge '{}' with IP {} using physical interface {}.", bridge.interface, bridge.ip_address, bridge.physical_interface);
+            let physical_interface = bridge.physical_interface.clone().unwrap_or_else(|| "N/A".to_owned());
+            info!("Created network bridge '{}' with IP {} using physical interface {}.", bridge.interface, bridge.ip_address, physical_interface);
             Ok(())
         };
 
