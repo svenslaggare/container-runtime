@@ -161,8 +161,7 @@ fn setup_cpu_cgroup(container_id: &str, cpu_shares: Option<i64>) -> ContainerRun
         let container_cpu_cgroup_dir = create_cgroup_task(container_id, "cpu")?;
 
         if let Some(cpu_shares) = cpu_shares {
-            File::create(container_cpu_cgroup_dir.join("cpu.shares"))?
-                .write_all(cpu_shares.to_string().as_bytes())?;
+            std::fs::write(container_cpu_cgroup_dir.join("cpu.shares"), cpu_shares.to_string())?;
         }
 
         Ok(())
@@ -178,13 +177,11 @@ fn setup_memory_cgroup(container_id: &str, memory: Option<i64>, memory_swap: Opt
         let container_memory_cgroup_dir = create_cgroup_task(container_id, "memory")?;
 
         if let Some(memory) = memory {
-            File::create(container_memory_cgroup_dir.join("memory.limit_in_bytes"))?
-                .write_all(memory.to_string().as_bytes())?;
+            std::fs::write(container_memory_cgroup_dir.join("memory.limit_in_bytes"), memory.to_string())?;
         }
 
         if let Some(memory_swap) = memory_swap {
-            File::create(container_memory_cgroup_dir.join("memory.memsw.limit_in_bytes"))?
-                .write_all(memory_swap.to_string().as_bytes())?
+            std::fs::write(container_memory_cgroup_dir.join("memory.memsw.limit_in_bytes"), memory_swap.to_string())?;
         }
 
         Ok(())

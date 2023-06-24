@@ -94,8 +94,8 @@ fn destroy_network_namespace(network_namespace: &str) -> ContainerRuntimeResult<
     inner().map_err(|err| ContainerRuntimeError::DestroyNetworkNamespace(err.to_string()))
 }
 
-pub fn find_free_ip_address(base_ip_address: Ipv4Net) -> Option<Ipv4Net> {
-    let network_namespaces = find_container_network_namespaces().ok()?;
+pub fn find_free_ip_address(base_ip_address: Ipv4Net) -> ContainerRuntimeResult<Ipv4Net> {
+    let network_namespaces = find_container_network_namespaces()?;
     let check_is_ip_address_used = |ip_address: Ipv4Net| -> ContainerRuntimeResult<bool> {
         if is_ip_address_used(&ip_address, None)? {
             return Ok(true);
@@ -113,15 +113,15 @@ pub fn find_free_ip_address(base_ip_address: Ipv4Net) -> Option<Ipv4Net> {
     let mut next_ip_address = base_ip_address;
     for _ in 0..base_ip_address.subnet_size() {
         if !next_ip_address.is_broadcast() && !next_ip_address.is_network() {
-            if !check_is_ip_address_used(next_ip_address).ok()? {
-                return Some(next_ip_address);
+            if !check_is_ip_address_used(next_ip_address)? {
+                return Ok(next_ip_address);
             }
         }
 
         next_ip_address = next_ip_address.next();
     }
 
-    None
+    Err(ContainerRuntimeError::NetworkIsFull)
 }
 
 fn find_container_network_namespaces() -> ContainerRuntimeResult<Vec<String>> {

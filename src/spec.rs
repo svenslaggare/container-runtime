@@ -136,7 +136,7 @@ impl BridgedNetworkSpec {
             BridgedNetworkSpec {
                 bridge_interface: bridge.interface.clone(),
                 bridge_ip_address: bridge.ip_address.clone(),
-                container_ip_address: network::find_free_ip_address(bridge.ip_address).ok_or_else(|| ContainerRuntimeError::NetworkFull)?,
+                container_ip_address: network::find_free_ip_address(bridge.ip_address)?,
                 hostname: None
             }
         )
