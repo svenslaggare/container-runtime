@@ -12,7 +12,7 @@ mod linux;
 mod helpers;
 
 use crate::network::Ipv4Net;
-use crate::spec::{BridgedNetworkSpec, BridgeNetworkSpec, NetworkSpec, RunContainerSpec, UserSpec};
+use crate::spec::{BridgedNetworkSpec, BridgeNetworkSpec, DNSSpec, NetworkSpec, RunContainerSpec, UserSpec};
 use crate::model::ContainerRuntimeResult;
 
 fn main() {
@@ -49,6 +49,8 @@ fn run(console_config: ConsoleConfig) -> ContainerRuntimeResult<()> {
         }
     };
 
+    let dns = if network.is_host() { DNSSpec::CopyFromHost } else {DNSSpec::default()};
+
     let run_container_spec = RunContainerSpec {
         image_base_dir,
         containers_base_dir,
@@ -56,6 +58,7 @@ fn run(console_config: ConsoleConfig) -> ContainerRuntimeResult<()> {
         image: console_config.image,
         command: console_config.command,
         network,
+        dns,
         user: console_config.user.map(|user| UserSpec::Name(user)),
         cpu_shares: Some(256),
         memory: Some(1024 * 1024 * 1024),

@@ -12,6 +12,7 @@ pub struct RunContainerSpec {
     pub image: String,
     pub command: Vec<String>,
     pub network: NetworkSpec,
+    pub dns: DNSSpec,
     pub user: Option<UserSpec>,
     pub cpu_shares: Option<i64>,
     pub memory: Option<i64>,
@@ -122,6 +123,15 @@ pub enum NetworkSpec {
     Bridged(BridgedNetworkSpec)
 }
 
+impl NetworkSpec {
+    pub fn is_host(&self) -> bool {
+        match self {
+            NetworkSpec::Host => true,
+            _ => false
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BridgedNetworkSpec {
     pub bridge_interface: String,
@@ -140,5 +150,17 @@ impl BridgedNetworkSpec {
                 hostname: None
             }
         )
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum DNSSpec {
+    Server(Vec<String>),
+    CopyFromHost
+}
+
+impl Default for DNSSpec {
+    fn default() -> Self {
+        DNSSpec::Server(vec!["8.8.8.8".to_owned(), "8.8.4.4".to_owned()])
     }
 }

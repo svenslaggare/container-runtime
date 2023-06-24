@@ -10,7 +10,7 @@ use crate::helpers::RemoveDirGuard;
 use crate::linux::{exec, mount, waitpid, wrap_libc_error};
 use crate::model::{ContainerRuntimeError, ContainerRuntimeResult, User};
 use crate::network::NetworkNamespace;
-use crate::spec::{NetworkSpec, RunContainerSpec};
+use crate::spec::{DNSSpec, NetworkSpec, RunContainerSpec};
 
 pub fn run(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResult<()> {
     let mut child_stack = vec![0u8; 32 * 1024];
@@ -63,7 +63,7 @@ fn execute(spec: &RunContainerSpec) -> ContainerRuntimeResult<()> {
     let new_root = create_container_root(&spec.image_root(), &spec.container_root())?;
     info!("Container root: {}", new_root.to_str().unwrap());
 
-    setup_dns(&new_root)?;
+    setup_dns(&new_root, &spec.dns)?;
 
     let users = User::from_passwd_file(&new_root.join("etc").join("passwd"))?;
     let user = match spec.user(users.values()) {
@@ -225,12 +225,22 @@ fn setup_network(network_namespace: &str, hostname: Option<String>) -> Container
     inner().map_err(|err| ContainerRuntimeError::SetupNetwork(err.to_string()))
 }
 
-fn setup_dns(new_root: &Path) -> ContainerRuntimeResult<()> {
-    let dns_server = "8.8.8.8";
-    trace!("Setup DNS - server: {}", dns_server);
+fn setup_dns(new_root: &Path, spec: &DNSSpec) -> ContainerRuntimeResult<()> {
+    let resolv_content = match spec {
+        DNSSpec::Server(servers) => {
+            servers
+                .iter()
+                .map(|server| format!("nameserver: {}", server))
+                .collect::<Vec<_>>()
+                .join("\n") + "\n"
+        }
+        DNSSpec::CopyFromHost => std::fs::read_to_string("/etc/resolv.conf")?
+    };
+
+    trace!("Setup DNS - content: {}", resolv_content.replace("\n", " "));
 
     let inner = || -> ContainerRuntimeResult<()> {
-        std::fs::write(new_root.join("etc").join("resolv.conf"), format!("nameserver {}", dns_server))?;
+        std::fs::write(new_root.join("etc").join("resolv.conf"), resolv_content)?;
         Ok(())
     };
 
