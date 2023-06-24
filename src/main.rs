@@ -35,8 +35,8 @@ fn run(console_config: ConsoleConfig) -> ContainerRuntimeResult<()> {
         }
         Network::Bridge => {
             let bridge = BridgeNetworkSpec::get_default()?;
-
             network::create_bridge(&bridge)?;
+
             let bridged = BridgedNetworkSpec::from_bridge(&bridge)?
                 .with_hostname(console_config.hostname);
 
@@ -44,7 +44,7 @@ fn run(console_config: ConsoleConfig) -> ContainerRuntimeResult<()> {
         }
     };
 
-    let dns = if network.is_host() { DNSSpec::CopyFromHost } else {DNSSpec::default()};
+    let dns = if network.is_host() { DNSSpec::CopyFromHost } else { DNSSpec::default() };
 
     let run_container_spec = RunContainerSpec {
         image_base_dir,
