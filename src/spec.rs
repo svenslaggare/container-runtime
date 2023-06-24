@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use crate::model::{ContainerRuntimeError, ContainerRuntimeResult, User};
 use crate::network;
@@ -117,6 +118,18 @@ pub struct BridgeNetworkSpec {
     pub ip_address: Ipv4Net
 }
 
+impl BridgeNetworkSpec {
+    pub fn get_default() -> ContainerRuntimeResult<BridgeNetworkSpec> {
+        Ok(
+            BridgeNetworkSpec {
+                physical_interface: Some(network::find_internet_interface()?),
+                interface: "cort0".to_string(),
+                ip_address: Ipv4Net::from_str("10.10.1.1/16").unwrap()
+            }
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum NetworkSpec {
     Host,
@@ -150,6 +163,11 @@ impl BridgedNetworkSpec {
                 hostname: None
             }
         )
+    }
+
+    pub fn with_hostname(mut self, hostname: Option<String>) -> BridgedNetworkSpec {
+        self.hostname = hostname;
+        self
     }
 }
 

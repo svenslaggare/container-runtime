@@ -11,7 +11,6 @@ mod network;
 mod linux;
 mod helpers;
 
-use crate::network::Ipv4Net;
 use crate::spec::{BridgedNetworkSpec, BridgeNetworkSpec, DNSSpec, NetworkSpec, RunContainerSpec, UserSpec};
 use crate::model::ContainerRuntimeResult;
 
@@ -35,15 +34,11 @@ fn run(console_config: ConsoleConfig) -> ContainerRuntimeResult<()> {
             NetworkSpec::Host
         }
         Network::Bridge => {
-            let bridge = BridgeNetworkSpec {
-                physical_interface: Some(network::find_internet_interface()?),
-                interface: "cort0".to_string(),
-                ip_address: Ipv4Net::from_str("10.10.1.1/16").unwrap()
-            };
+            let bridge = BridgeNetworkSpec::get_default()?;
 
             network::create_bridge(&bridge)?;
-            let mut bridged = BridgedNetworkSpec::from_bridge(&bridge)?;
-            bridged.hostname = console_config.hostname;
+            let bridged = BridgedNetworkSpec::from_bridge(&bridge)?
+                .with_hostname(console_config.hostname);
 
             NetworkSpec::Bridged(bridged)
         }
