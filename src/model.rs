@@ -38,6 +38,8 @@ pub enum ContainerRuntimeError {
     InvalidUser(UserSpec),
     #[error("No free IP address found in network")]
     NetworkIsFull,
+    #[error("Failed to determine internet interface: {0}")]
+    FailedToDetermineInternetInterface(String),
 
     #[error("IP command failure: {0}")]
     IPCommand(String),

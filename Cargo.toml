@@ -7,6 +7,8 @@ edition = "2021"
 thiserror = "1"
 
 libc = "0.2"
+dns-lookup = "2"
+
 uuid = { version = "1", features = ["v4", "fast-rng"] }
 
 log = "0.4"

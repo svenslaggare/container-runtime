@@ -1,6 +1,6 @@
 use std::ffi::OsStr;
 use std::fmt::{Display};
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::process::Command;
 use std::str::FromStr;
 
@@ -143,6 +143,26 @@ fn is_ip_address_used(ip_address: &Ipv4Net, namespace: Option<&str>) -> Containe
     };
 
     Ok(ip_command(arguments)?.contains(&ip_address.to_string()))
+}
+
+pub fn find_internet_interface() -> ContainerRuntimeResult<String> {
+    let inner = || -> Result<String, String> {
+        let hostname = "google.com";
+        let ips: Vec<IpAddr> = dns_lookup::lookup_host(hostname).map_err(|err| err.to_string())?;
+
+        for ip in ips {
+            if let IpAddr::V4(ip) = ip {
+                let result = ip_command(["route", "get", &ip.to_string()]).map_err(|err| err.to_string())?;
+                let result = result.split(" ");
+                let mut result = result.skip(4);
+                return result.next().ok_or_else(|| "No interface found".to_owned()).map(|x| x.to_owned());
+            }
+        }
+
+        Err("No IPv4 address found".to_owned())
+    };
+
+    inner().map_err(|err| ContainerRuntimeError::FailedToDetermineInternetInterface(err))
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
