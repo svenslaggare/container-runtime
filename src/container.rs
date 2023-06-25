@@ -230,7 +230,7 @@ fn setup_dns(new_root: &Path, spec: &DNSSpec) -> ContainerRuntimeResult<()> {
         DNSSpec::Server(servers) => {
             servers
                 .iter()
-                .map(|server| format!("nameserver: {}", server))
+                .map(|server| format!("nameserver {}", server))
                 .collect::<Vec<_>>()
                 .join("\n") + "\n"
         }

@@ -20,10 +20,10 @@ pub fn create_bridge(bridge: &BridgeNetworkSpec) -> ContainerRuntimeResult<()> {
 
             iptables_command(["-P", "FORWARD", "DROP"])?;
             iptables_command(["-F", "FORWARD"])?;
-            iptables_command(["-t", "nat", "-F"])?;
             iptables_command(["-A", "FORWARD", "-i", &bridge.interface, "-o", &bridge.interface, "-j", "ACCEPT"])?;
 
             if let Some(physical_interface) = &bridge.physical_interface {
+                iptables_command(["-t", "nat", "-F"])?;
                 iptables_command(["-t", "nat", "-A", "POSTROUTING", "-s", &bridge.ip_address.to_string(), "-o", physical_interface, "-j", "MASQUERADE"])?;
                 iptables_command(["-A", "FORWARD", "-i", physical_interface, "-o", &bridge.interface, "-j", "ACCEPT"])?;
                 iptables_command(["-A", "FORWARD", "-o", physical_interface, "-i", &bridge.interface, "-j", "ACCEPT"])?;
@@ -162,7 +162,7 @@ pub fn find_internet_interface() -> ContainerRuntimeResult<String> {
             }
         }
 
-        Err("No IPv4 address found".to_owned())
+        Err("No IPv4 address found for host 'google.com'".to_owned())
     };
 
     inner().map_err(|err| ContainerRuntimeError::FailedToDetermineInternetInterface(err))
