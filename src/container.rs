@@ -121,7 +121,7 @@ fn setup_container_root(new_root: &Path, working_dir: &Path) -> ContainerRuntime
 
     let inner = || -> ContainerRuntimeResult<()> {
         setup_mounts(&new_root)?;
-        setup_devices(&new_root.join("dev"))?;
+        setup_devices(&new_root)?;
 
         let old_root = new_root.join("old_root");
         std::fs::create_dir_all(&old_root)?;
@@ -286,7 +286,8 @@ fn setup_mounts(new_root: &Path) -> ContainerRuntimeResult<()> {
     inner().map_err(|err| ContainerRuntimeError::SetupMounts(err.to_string()))
 }
 
-fn setup_devices(dev_path: &Path) -> ContainerRuntimeResult<()> {
+fn setup_devices(new_root: &Path) -> ContainerRuntimeResult<()> {
+    let dev_path = new_root.join("dev");
     trace!("Setup devices - dev path: {}", dev_path.to_str().unwrap());
 
     let inner = || -> ContainerRuntimeResult<()> {
