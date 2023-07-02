@@ -26,6 +26,39 @@ pub fn mount(src: Option<&str>, target: &Path, fstype: Option<&str>, flags: c_ul
     }
 }
 
+pub fn pivot_root(new_root: &Path, old_root: &Path) -> ContainerRuntimeResult<()> {
+    let new_root_str = CString::new(new_root.to_str().unwrap()).unwrap();
+    let old_root_str = CString::new(old_root.to_str().unwrap()).unwrap();
+
+    unsafe {
+        wrap_libc_error(libc::syscall(
+            libc::SYS_pivot_root,
+            new_root_str.as_ptr(),
+            old_root_str.as_ptr()
+        ) as i32)?;
+    }
+
+    Ok(())
+}
+
+pub fn change_dir(working_dir: &Path) -> ContainerRuntimeResult<()> {
+    unsafe {
+        let working_dir = CString::new(working_dir.to_str().unwrap()).unwrap();
+        wrap_libc_error(libc::chdir(working_dir.as_ptr()))?;
+    }
+
+    Ok(())
+}
+
+pub fn unmount(target: &Path) -> ContainerRuntimeResult<()> {
+    unsafe {
+        let target = CString::new(target.to_str().unwrap()).unwrap();
+        wrap_libc_error(libc::umount2(target.as_ptr(), libc::MNT_DETACH))?;
+    }
+
+    Ok(())
+}
+
 pub fn exec(command: &Vec<String>) -> ContainerRuntimeResult<()> {
     let command = command.iter().map(|part| CString::new(part.as_str()).unwrap()).collect::<Vec<_>>();
     let mut command_ptrs = command.iter().map(|part| part.as_ptr()).collect::<Vec<_>>();

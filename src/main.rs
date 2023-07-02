@@ -12,7 +12,7 @@ mod network;
 mod linux;
 mod helpers;
 
-use crate::spec::{BindMountSpec, BridgedNetworkSpec, BridgeNetworkSpec, NetworkSpec, RunContainerSpec, UserSpec};
+use crate::spec::{BindMountSpec, BridgedNetworkSpec, BridgeSpec, NetworkSpec, RunContainerSpec, UserSpec};
 use crate::model::{ContainerRuntimeError, ContainerRuntimeResult};
 
 fn main() {
@@ -35,7 +35,7 @@ fn run(console_config: ConsoleConfig) -> ContainerRuntimeResult<()> {
             NetworkSpec::Host
         }
         Network::Bridge => {
-            let bridge = BridgeNetworkSpec::get_default()?;
+            let bridge = BridgeSpec::get_default()?;
             network::create_bridge(&bridge)?;
 
             let bridged = BridgedNetworkSpec::from_bridge(&bridge)?

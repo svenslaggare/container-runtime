@@ -7,9 +7,9 @@ use std::str::FromStr;
 use log::{error, info};
 
 use crate::model::{ContainerRuntimeError, ContainerRuntimeResult};
-use crate::spec::{BridgedNetworkSpec, BridgeNetworkSpec};
+use crate::spec::{BridgedNetworkSpec, BridgeSpec};
 
-pub fn create_bridge(bridge: &BridgeNetworkSpec) -> ContainerRuntimeResult<bool> {
+pub fn create_bridge(bridge: &BridgeSpec) -> ContainerRuntimeResult<bool> {
     if ip_command(["link", "show", &bridge.interface]).is_err() {
         let inner = || -> ContainerRuntimeResult<bool> {
             ip_command(["link", "add", "name", &bridge.interface, "type", "bridge"])?;

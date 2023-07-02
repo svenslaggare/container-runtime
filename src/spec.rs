@@ -24,7 +24,11 @@ pub struct RunContainerSpec {
 
 impl RunContainerSpec {
     pub fn image_root(&self) -> PathBuf {
-        self.image_base_dir.join(&self.image).join("rootfs")
+        self.image_base_dir.join("rootfs").join(&self.image)
+    }
+
+    pub fn image_archive(&self) -> PathBuf {
+        self.image_base_dir.join(self.image.clone() + ".tar")
     }
 
     pub fn container_root(&self) -> PathBuf {
@@ -114,16 +118,16 @@ impl UserSpec {
 }
 
 #[derive(Debug, Clone)]
-pub struct BridgeNetworkSpec {
+pub struct BridgeSpec {
     pub physical_interface: Option<String>,
     pub interface: String,
     pub ip_address: Ipv4Net
 }
 
-impl BridgeNetworkSpec {
-    pub fn get_default() -> ContainerRuntimeResult<BridgeNetworkSpec> {
+impl BridgeSpec {
+    pub fn get_default() -> ContainerRuntimeResult<BridgeSpec> {
         Ok(
-            BridgeNetworkSpec {
+            BridgeSpec {
                 physical_interface: Some(network::find_internet_interface()?),
                 interface: "cort0".to_string(),
                 ip_address: Ipv4Net::from_str("10.10.1.1/16").unwrap()
@@ -164,7 +168,7 @@ pub struct BridgedNetworkSpec {
 }
 
 impl BridgedNetworkSpec {
-    pub fn from_bridge(bridge: &BridgeNetworkSpec) -> ContainerRuntimeResult<BridgedNetworkSpec> {
+    pub fn from_bridge(bridge: &BridgeSpec) -> ContainerRuntimeResult<BridgedNetworkSpec> {
         Ok(
             BridgedNetworkSpec {
                 bridge_interface: bridge.interface.clone(),

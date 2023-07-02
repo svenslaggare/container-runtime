@@ -7,12 +7,14 @@ use std::path::{Path, PathBuf};
 use log::{error, info, trace};
 
 use crate::helpers::RemoveDirGuard;
-use crate::linux::{exec, mount, waitpid, wrap_libc_error};
+use crate::linux::{change_dir, exec, mount, pivot_root, unmount, waitpid, wrap_libc_error};
 use crate::model::{ContainerRuntimeError, ContainerRuntimeResult, User};
 use crate::network::NetworkNamespace;
 use crate::spec::{BindMountSpec, DNSSpec, NetworkSpec, RunContainerSpec};
 
 pub fn run(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResult<()> {
+    unpack_image(run_container_spec)?;
+
     let mut child_stack = vec![0u8; 32 * 1024];
 
     let _remove_container_root = RemoveDirGuard::new(run_container_spec.container_root());
@@ -46,6 +48,24 @@ pub fn run(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResult<()> 
     info!("Running container as PID {}.", pid);
     let status = waitpid(pid)?;
     info!("PID {} exited with status {}.", pid, status);
+
+    Ok(())
+}
+
+fn unpack_image(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResult<()> {
+    if !run_container_spec.image_root().exists() {
+        let image_archive = run_container_spec.image_archive();
+        let tar_archive = File::open(&image_archive)?;
+        let mut tar_archive = tar::Archive::new(tar_archive);
+        tar_archive.unpack(run_container_spec.image_root())?;
+
+        trace!(
+            "Unpacked image '{}' at {} (using {})",
+            run_container_spec.image,
+            run_container_spec.image_root().to_str().unwrap(),
+            image_archive.to_str().unwrap()
+        );
+    }
 
     Ok(())
 }
@@ -120,46 +140,17 @@ fn setup_container_root(new_root: &Path, working_dir: &Path, bind_mounts: &Vec<B
     trace!("Setup container root - new root: {}, working dir: {}", new_root.to_str().unwrap(), working_dir.to_str().unwrap());
 
     let inner = || -> ContainerRuntimeResult<()> {
-        setup_mounts(&new_root)?;
-        setup_devices(&new_root)?;
+        setup_mounts(new_root)?;
+        setup_devices(new_root)?;
+        setup_bind_mounts(new_root, bind_mounts)?;
 
         let old_root = new_root.join("old_root");
         std::fs::create_dir_all(&old_root)?;
 
-        for bind_mount in bind_mounts {
-            let source = bind_mount.source.to_str().unwrap();
-            let target_in_new_root = new_root.join(bind_mount.target.iter().skip(1).collect::<PathBuf>());
-            trace!("Setup of bind mount {} -> {}", source, bind_mount.target.to_str().unwrap());
+        pivot_root(new_root, &old_root)?;
+        change_dir(working_dir)?;
 
-            std::fs::create_dir_all(&target_in_new_root)?;
-            mount(Some(source), &target_in_new_root, None, libc::MS_BIND, None)?;
-
-            if bind_mount.is_readonly {
-                mount(Some(source), &target_in_new_root, None, libc::MS_BIND | libc::MS_RDONLY | libc::MS_REMOUNT, None)?;
-            }
-        }
-
-        unsafe {
-            let new_root_str = CString::new(new_root.to_str().unwrap()).unwrap();
-            let old_root_str = CString::new(old_root.to_str().unwrap()).unwrap();
-
-            wrap_libc_error(libc::syscall(
-                libc::SYS_pivot_root,
-                new_root_str.as_ptr(),
-                old_root_str.as_ptr()
-            ) as i32)?;
-        }
-
-        unsafe {
-            let working_dir = CString::new(working_dir.to_str().unwrap()).unwrap();
-            wrap_libc_error(libc::chdir(working_dir.as_ptr()))?;
-        }
-
-        unsafe {
-            let target = CString::new("/old_root").unwrap();
-            wrap_libc_error(libc::umount2(target.as_ptr(), libc::MNT_DETACH))?;
-        }
-
+        unmount(Path::new("/old_root"))?;
         std::fs::remove_dir("/old_root")?;
 
         Ok(())
@@ -333,4 +324,21 @@ fn setup_devices(new_root: &Path) -> ContainerRuntimeResult<()> {
     };
 
     inner().map_err(|err| ContainerRuntimeError::SetupDevices(err.to_string()))
+}
+
+fn setup_bind_mounts(new_root: &Path, bind_mounts: &Vec<BindMountSpec>) -> ContainerRuntimeResult<()> {
+    for bind_mount in bind_mounts {
+        let source = bind_mount.source.to_str().unwrap();
+        let target_in_new_root = new_root.join(bind_mount.target.iter().skip(1).collect::<PathBuf>());
+        trace!("Setup of bind mount {} -> {}", source, bind_mount.target.to_str().unwrap());
+
+        std::fs::create_dir_all(&target_in_new_root)?;
+        mount(Some(source), &target_in_new_root, None, libc::MS_BIND, None)?;
+
+        if bind_mount.is_readonly {
+            mount(Some(source), &target_in_new_root, None, libc::MS_BIND | libc::MS_RDONLY | libc::MS_REMOUNT, None)?;
+        }
+    }
+
+    Ok(())
 }
