@@ -1,7 +1,7 @@
 use std::path::{ PathBuf};
 use std::str::FromStr;
 
-use log::error;
+use log::{error, LevelFilter};
 use uuid::Uuid;
 use structopt::StructOpt;
 
@@ -13,7 +13,7 @@ mod linux;
 mod helpers;
 
 use crate::spec::{BindMountSpec, BridgedNetworkSpec, BridgeSpec, NetworkSpec, RunContainerSpec, UserSpec};
-use crate::model::{ContainerRuntimeError, ContainerRuntimeResult};
+use crate::model::{ContainerRuntimeResult};
 
 fn main() {
     let console_config: ConsoleConfig = ConsoleConfig::from_args();
@@ -24,7 +24,7 @@ fn main() {
 }
 
 fn run(console_config: ConsoleConfig) -> ContainerRuntimeResult<()> {
-    setup_logging().unwrap();
+    setup_logging(&console_config).unwrap();
 
     let base_dir = std::env::current_dir().unwrap();
     let image_base_dir = base_dir.join("images");
@@ -45,23 +45,9 @@ fn run(console_config: ConsoleConfig) -> ContainerRuntimeResult<()> {
         }
     };
 
-    let mut bind_mounts = Vec::new();
-    if console_config.mounts.len() > 0 {
-        if console_config.mounts.len() % 2 != 0 {
-            return Err(ContainerRuntimeError::Input("Expected bind mounts in pairs".to_owned()));
-        }
-
-        for pair in console_config.mounts.chunks(2) {
-            bind_mounts.push(BindMountSpec {
-                source: pair[0].to_owned(),
-                target: pair[1].to_owned(),
-                is_readonly: false
-            });
-        }
-    }
-
     let id = Uuid::new_v4().to_string();
     let dns = network.default_dns();
+
     let run_container_spec = RunContainerSpec {
         image_base_dir,
         containers_base_dir,
@@ -75,7 +61,7 @@ fn run(console_config: ConsoleConfig) -> ContainerRuntimeResult<()> {
         cpu_shares: Some(256),
         memory: Some(1024 * 1024 * 1024),
         memory_swap: None,
-        bind_mounts
+        bind_mounts: BindMountSpec::from_paths(console_config.mounts)?
     };
 
     container::run(&run_container_spec)
@@ -84,6 +70,9 @@ fn run(console_config: ConsoleConfig) -> ContainerRuntimeResult<()> {
 #[derive(Debug, StructOpt)]
 #[structopt(name="cort", about="Container runtime")]
 struct ConsoleConfig {
+    /// The log level
+    #[structopt(long)]
+    log_level: Option<LevelFilter>,
     /// The name of the container
     #[structopt(long)]
     name: Option<String>,
@@ -125,7 +114,7 @@ impl FromStr for Network {
     }
 }
 
-fn setup_logging() -> Result<(), log::SetLoggerError> {
+fn setup_logging(console_config: &ConsoleConfig) -> Result<(), log::SetLoggerError> {
     fern::Dispatch::new()
         .format(|out, message, record| {
             out.finish(format_args!(
@@ -136,7 +125,7 @@ fn setup_logging() -> Result<(), log::SetLoggerError> {
                 message
             ))
         })
-        .level(log::LevelFilter::Debug)
+        .level(console_config.log_level.unwrap_or(LevelFilter::Debug))
         .chain(std::io::stdout())
         .apply()?;
     Ok(())

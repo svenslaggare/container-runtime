@@ -203,3 +203,24 @@ pub struct BindMountSpec {
     pub target: PathBuf,
     pub is_readonly: bool
 }
+
+impl BindMountSpec {
+    pub fn from_paths(paths: Vec<PathBuf>) -> ContainerRuntimeResult<Vec<BindMountSpec>> {
+        let mut bind_mounts = Vec::new();
+        if paths.len() > 0 {
+            if paths.len() % 2 != 0 {
+                return Err(ContainerRuntimeError::Input("Expected bind mounts in pairs".to_owned()));
+            }
+
+            for pair in paths.chunks(2) {
+                bind_mounts.push(BindMountSpec {
+                    source: pair[0].to_owned(),
+                    target: pair[1].to_owned(),
+                    is_readonly: false
+                });
+            }
+        }
+
+        Ok(bind_mounts)
+    }
+}
