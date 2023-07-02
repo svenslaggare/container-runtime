@@ -125,7 +125,7 @@ pub struct BridgeSpec {
 }
 
 impl BridgeSpec {
-    pub fn get_default() -> ContainerRuntimeResult<BridgeSpec> {
+    pub fn default() -> ContainerRuntimeResult<BridgeSpec> {
         Ok(
             BridgeSpec {
                 physical_interface: Some(network::find_internet_interface()?),

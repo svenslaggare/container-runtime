@@ -35,7 +35,7 @@ fn run(console_config: ConsoleConfig) -> ContainerRuntimeResult<()> {
             NetworkSpec::Host
         }
         Network::Bridge => {
-            let bridge = BridgeSpec::get_default()?;
+            let bridge = BridgeSpec::default()?;
             network::create_bridge(&bridge)?;
 
             let bridged = BridgedNetworkSpec::from_bridge(&bridge)?
