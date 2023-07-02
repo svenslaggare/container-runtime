@@ -129,6 +129,8 @@ fn setup_container_root(new_root: &Path, working_dir: &Path, bind_mounts: &Vec<B
         for bind_mount in bind_mounts {
             let source = bind_mount.source.to_str().unwrap();
             let target_in_new_root = new_root.join(bind_mount.target.iter().skip(1).collect::<PathBuf>());
+            trace!("Setup of bind mount {} -> {}", source, bind_mount.target.to_str().unwrap());
+
             std::fs::create_dir_all(&target_in_new_root)?;
             mount(Some(source), &target_in_new_root, None, libc::MS_BIND, None)?;
 
