@@ -9,9 +9,9 @@ use log::{error, info};
 use crate::model::{ContainerRuntimeError, ContainerRuntimeResult};
 use crate::spec::{BridgedNetworkSpec, BridgeNetworkSpec};
 
-pub fn create_bridge(bridge: &BridgeNetworkSpec) -> ContainerRuntimeResult<()> {
+pub fn create_bridge(bridge: &BridgeNetworkSpec) -> ContainerRuntimeResult<bool> {
     if ip_command(["link", "show", &bridge.interface]).is_err() {
-        let inner = || -> ContainerRuntimeResult<()> {
+        let inner = || -> ContainerRuntimeResult<bool> {
             ip_command(["link", "add", "name", &bridge.interface, "type", "bridge"])?;
             ip_command(["link", "set", "dev", &bridge.interface, "up"])?;
             ip_command(["addr", "add", &bridge.ip_address.to_string(), "dev", &bridge.interface])?;
@@ -31,12 +31,12 @@ pub fn create_bridge(bridge: &BridgeNetworkSpec) -> ContainerRuntimeResult<()> {
 
             let physical_interface = bridge.physical_interface.clone().unwrap_or_else(|| "N/A".to_owned());
             info!("Created network bridge '{}' with IP {} using physical interface {}.", bridge.interface, bridge.ip_address, physical_interface);
-            Ok(())
+            Ok(true)
         };
 
         inner().map_err(|err| ContainerRuntimeError::CreateNetworkBridge(err.to_string()))
     } else {
-        Ok(())
+        Ok(false)
     }
 }
 

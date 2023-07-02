@@ -11,7 +11,7 @@ mod network;
 mod linux;
 mod helpers;
 
-use crate::spec::{BridgedNetworkSpec, BridgeNetworkSpec, DNSSpec, NetworkSpec, RunContainerSpec, UserSpec};
+use crate::spec::{BridgedNetworkSpec, BridgeNetworkSpec, NetworkSpec, RunContainerSpec, UserSpec};
 use crate::model::ContainerRuntimeResult;
 
 fn main() {
@@ -44,12 +44,13 @@ fn run(console_config: ConsoleConfig) -> ContainerRuntimeResult<()> {
         }
     };
 
-    let dns = if network.is_host() { DNSSpec::CopyFromHost } else { DNSSpec::default() };
-
+    let id = Uuid::new_v4().to_string();
+    let dns = network.default_dns();
     let run_container_spec = RunContainerSpec {
         image_base_dir,
         containers_base_dir,
-        id: console_config.name.unwrap_or_else(|| Uuid::new_v4().to_string()),
+        id: id.clone(),
+        name: console_config.name.unwrap_or_else(|| id),
         image: console_config.image,
         command: console_config.command,
         network,

@@ -10,6 +10,7 @@ pub struct RunContainerSpec {
     pub image_base_dir: PathBuf,
     pub containers_base_dir: PathBuf,
     pub id: String,
+    pub name: String,
     pub image: String,
     pub command: Vec<String>,
     pub network: NetworkSpec,
@@ -33,7 +34,7 @@ impl RunContainerSpec {
         match &self.network {
             NetworkSpec::Host => None,
             NetworkSpec::Bridged(bridged) => {
-                Some(bridged.hostname.clone().unwrap_or_else(|| self.id.clone()))
+                Some(bridged.hostname.clone().unwrap_or_else(|| self.name.clone()))
             }
         }
     }
@@ -141,6 +142,14 @@ impl NetworkSpec {
         match self {
             NetworkSpec::Host => true,
             _ => false
+        }
+    }
+
+    pub fn default_dns(&self) -> DNSSpec {
+        if self.is_host() {
+            DNSSpec::CopyFromHost
+        } else {
+            DNSSpec::default()
         }
     }
 }
