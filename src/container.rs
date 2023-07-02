@@ -10,7 +10,7 @@ use crate::helpers::RemoveDirGuard;
 use crate::linux::{exec, mount, waitpid, wrap_libc_error};
 use crate::model::{ContainerRuntimeError, ContainerRuntimeResult, User};
 use crate::network::NetworkNamespace;
-use crate::spec::{DNSSpec, NetworkSpec, RunContainerSpec};
+use crate::spec::{BindMountSpec, DNSSpec, NetworkSpec, RunContainerSpec};
 
 pub fn run(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResult<()> {
     let mut child_stack = vec![0u8; 32 * 1024];
@@ -116,7 +116,7 @@ fn create_container_root(image_root: &Path, container_root: &Path) -> ContainerR
     Ok(container_rootfs)
 }
 
-fn setup_container_root(new_root: &Path, working_dir: &Path, bind_mounts: &Vec<(PathBuf, PathBuf)>) -> ContainerRuntimeResult<()> {
+fn setup_container_root(new_root: &Path, working_dir: &Path, bind_mounts: &Vec<BindMountSpec>) -> ContainerRuntimeResult<()> {
     trace!("Setup container root - new root: {}, working dir: {}", new_root.to_str().unwrap(), working_dir.to_str().unwrap());
 
     let inner = || -> ContainerRuntimeResult<()> {
@@ -126,10 +126,15 @@ fn setup_container_root(new_root: &Path, working_dir: &Path, bind_mounts: &Vec<(
         let old_root = new_root.join("old_root");
         std::fs::create_dir_all(&old_root)?;
 
-        for (source, target) in bind_mounts {
-            let target_in_new_root = new_root.join(target.iter().skip(1).collect::<PathBuf>());
+        for bind_mount in bind_mounts {
+            let source = bind_mount.source.to_str().unwrap();
+            let target_in_new_root = new_root.join(bind_mount.target.iter().skip(1).collect::<PathBuf>());
             std::fs::create_dir_all(&target_in_new_root)?;
-            mount(Some(source.to_str().unwrap()), &target_in_new_root, None, libc::MS_BIND, None)?;
+            mount(Some(source), &target_in_new_root, None, libc::MS_BIND, None)?;
+
+            if bind_mount.is_readonly {
+                mount(Some(source), &target_in_new_root, None, libc::MS_BIND | libc::MS_RDONLY | libc::MS_REMOUNT, None)?;
+            }
         }
 
         unsafe {

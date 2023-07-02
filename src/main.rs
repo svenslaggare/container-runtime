@@ -12,7 +12,7 @@ mod network;
 mod linux;
 mod helpers;
 
-use crate::spec::{BridgedNetworkSpec, BridgeNetworkSpec, NetworkSpec, RunContainerSpec, UserSpec};
+use crate::spec::{BindMountSpec, BridgedNetworkSpec, BridgeNetworkSpec, NetworkSpec, RunContainerSpec, UserSpec};
 use crate::model::{ContainerRuntimeError, ContainerRuntimeResult};
 
 fn main() {
@@ -52,7 +52,11 @@ fn run(console_config: ConsoleConfig) -> ContainerRuntimeResult<()> {
         }
 
         for pair in console_config.mounts.chunks(2) {
-            bind_mounts.push((pair[0].clone(), pair[1].clone()));
+            bind_mounts.push(BindMountSpec {
+                source: pair[0].to_owned(),
+                target: pair[1].to_owned(),
+                is_readonly: false
+            });
         }
     }
 

@@ -19,7 +19,7 @@ pub struct RunContainerSpec {
     pub cpu_shares: Option<i64>,
     pub memory: Option<i64>,
     pub memory_swap: Option<i64>,
-    pub bind_mounts: Vec<(PathBuf, PathBuf)>
+    pub bind_mounts: Vec<BindMountSpec>
 }
 
 impl RunContainerSpec {
@@ -191,4 +191,11 @@ impl Default for DNSSpec {
     fn default() -> Self {
         DNSSpec::Server(vec!["8.8.8.8".to_owned(), "8.8.4.4".to_owned()])
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct BindMountSpec {
+    pub source: PathBuf,
+    pub target: PathBuf,
+    pub is_readonly: bool
 }
