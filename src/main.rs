@@ -92,15 +92,15 @@ struct ConsoleConfig {
     /// The hostname to use
     #[structopt(long)]
     hostname: Option<String>,
+    /// The paths to bind mount into the container
+    #[structopt(long)]
+    mounts: Vec<PathBuf>,
     /// The image to run
     #[structopt()]
     image: String,
     /// The command to run
     #[structopt()]
-    command: Vec<String>,
-    /// The paths to bind mount into the container
-    #[structopt(long)]
-    mounts: Vec<PathBuf>
+    command: Vec<String>
 }
 
 #[derive(Debug)]
