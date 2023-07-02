@@ -76,7 +76,7 @@ fn execute(spec: &RunContainerSpec) -> ContainerRuntimeResult<()> {
         .map(|user| user.home_folder.clone())
         .unwrap_or(Path::new("/").to_owned());
 
-    setup_container_root(&new_root, &working_dir)?;
+    setup_container_root(&new_root, &working_dir, &spec.bind_mounts)?;
 
     if let Some(user) = user.as_ref() {
         setup_user(user)?;
@@ -116,7 +116,7 @@ fn create_container_root(image_root: &Path, container_root: &Path) -> ContainerR
     Ok(container_rootfs)
 }
 
-fn setup_container_root(new_root: &Path, working_dir: &Path) -> ContainerRuntimeResult<()> {
+fn setup_container_root(new_root: &Path, working_dir: &Path, bind_mounts: &Vec<(PathBuf, PathBuf)>) -> ContainerRuntimeResult<()> {
     trace!("Setup container root - new root: {}, working dir: {}", new_root.to_str().unwrap(), working_dir.to_str().unwrap());
 
     let inner = || -> ContainerRuntimeResult<()> {
@@ -125,6 +125,12 @@ fn setup_container_root(new_root: &Path, working_dir: &Path) -> ContainerRuntime
 
         let old_root = new_root.join("old_root");
         std::fs::create_dir_all(&old_root)?;
+
+        for (source, target) in bind_mounts {
+            let target_in_new_root = new_root.join(target.iter().skip(1).collect::<PathBuf>());
+            std::fs::create_dir_all(&target_in_new_root)?;
+            mount(Some(source.to_str().unwrap()), &target_in_new_root, None, libc::MS_BIND, None)?;
+        }
 
         unsafe {
             let new_root_str = CString::new(new_root.to_str().unwrap()).unwrap();

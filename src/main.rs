@@ -1,3 +1,4 @@
+use std::path::{ PathBuf};
 use std::str::FromStr;
 
 use log::error;
@@ -12,7 +13,7 @@ mod linux;
 mod helpers;
 
 use crate::spec::{BridgedNetworkSpec, BridgeNetworkSpec, NetworkSpec, RunContainerSpec, UserSpec};
-use crate::model::ContainerRuntimeResult;
+use crate::model::{ContainerRuntimeError, ContainerRuntimeResult};
 
 fn main() {
     let console_config: ConsoleConfig = ConsoleConfig::from_args();
@@ -44,6 +45,17 @@ fn run(console_config: ConsoleConfig) -> ContainerRuntimeResult<()> {
         }
     };
 
+    let mut bind_mounts = Vec::new();
+    if console_config.mounts.len() > 0 {
+        if console_config.mounts.len() % 2 != 0 {
+            return Err(ContainerRuntimeError::Input("Expected bind mounts in pairs".to_owned()));
+        }
+
+        for pair in console_config.mounts.chunks(2) {
+            bind_mounts.push((pair[0].clone(), pair[1].clone()));
+        }
+    }
+
     let id = Uuid::new_v4().to_string();
     let dns = network.default_dns();
     let run_container_spec = RunContainerSpec {
@@ -58,7 +70,8 @@ fn run(console_config: ConsoleConfig) -> ContainerRuntimeResult<()> {
         user: console_config.user.map(|user| UserSpec::Name(user)),
         cpu_shares: Some(256),
         memory: Some(1024 * 1024 * 1024),
-        memory_swap: None
+        memory_swap: None,
+        bind_mounts
     };
 
     container::run(&run_container_spec)?;
@@ -86,6 +99,9 @@ struct ConsoleConfig {
     /// The command to run
     #[structopt()]
     command: Vec<String>,
+    /// The paths to bind mount into the container
+    #[structopt(long)]
+    mounts: Vec<PathBuf>
 }
 
 #[derive(Debug)]
