@@ -295,8 +295,8 @@ fn setup_devices(new_root: &Path) -> ContainerRuntimeResult<()> {
     trace!("Setup devices - dev path: {}", dev_path.to_str().unwrap());
 
     let inner = || -> ContainerRuntimeResult<()> {
-        for (i, dev) in ["stdin", "stdout", "stderr"].iter().enumerate() {
-            std::os::unix::fs::symlink(&format!("/proc/self/fd/{}", i), dev_path.join(dev))?;
+        for (fd, dev) in ["stdin", "stdout", "stderr"].iter().enumerate() {
+            std::os::unix::fs::symlink(&format!("/proc/self/fd/{}", fd), dev_path.join(dev))?;
         }
 
         let devices = [
