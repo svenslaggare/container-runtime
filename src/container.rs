@@ -52,24 +52,6 @@ pub fn run(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResult<()> 
     Ok(())
 }
 
-fn unpack_image(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResult<()> {
-    if !run_container_spec.image_root().exists() {
-        let image_archive = run_container_spec.image_archive();
-        let tar_archive = File::open(&image_archive)?;
-        let mut tar_archive = tar::Archive::new(tar_archive);
-        tar_archive.unpack(run_container_spec.image_root())?;
-
-        trace!(
-            "Unpacked image '{}' at {} (using {})",
-            run_container_spec.image,
-            run_container_spec.image_root().to_str().unwrap(),
-            image_archive.to_str().unwrap()
-        );
-    }
-
-    Ok(())
-}
-
 fn execute(spec: &RunContainerSpec) -> ContainerRuntimeResult<()> {
     setup_cpu_cgroup(&spec.id, spec.cpu_shares)?;
     setup_memory_cgroup(&spec.id, spec.memory, spec.memory_swap)?;
@@ -103,6 +85,24 @@ fn execute(spec: &RunContainerSpec) -> ContainerRuntimeResult<()> {
     }
 
     exec(&spec.command)?;
+
+    Ok(())
+}
+
+fn unpack_image(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResult<()> {
+    if !run_container_spec.image_root().exists() {
+        let image_archive = run_container_spec.image_archive();
+        let tar_archive = File::open(&image_archive)?;
+        let mut tar_archive = tar::Archive::new(tar_archive);
+        tar_archive.unpack(run_container_spec.image_root())?;
+
+        trace!(
+            "Unpacked image '{}' at {} (using {})",
+            run_container_spec.image,
+            run_container_spec.image_root().to_str().unwrap(),
+            image_archive.to_str().unwrap()
+        );
+    }
 
     Ok(())
 }
