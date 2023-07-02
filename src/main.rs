@@ -74,8 +74,7 @@ fn run(console_config: ConsoleConfig) -> ContainerRuntimeResult<()> {
         bind_mounts
     };
 
-    container::run(&run_container_spec)?;
-    Ok(())
+    container::run(&run_container_spec)
 }
 
 #[derive(Debug, StructOpt)]
