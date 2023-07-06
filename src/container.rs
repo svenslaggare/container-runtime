@@ -94,6 +94,8 @@ fn unpack_image(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResult
         let image_archive = run_container_spec.image_archive();
         let tar_archive = File::open(&image_archive)?;
         let mut tar_archive = tar::Archive::new(tar_archive);
+        tar_archive.set_unpack_xattrs(true);
+        tar_archive.set_preserve_permissions(true);
         tar_archive.unpack(run_container_spec.image_root())?;
 
         trace!(
