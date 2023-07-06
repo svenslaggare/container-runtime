@@ -1,5 +1,6 @@
 use std::ffi::{c_int, c_ulong, CStr, CString};
 use std::path::Path;
+use libc::{gid_t, uid_t};
 
 use crate::model::{ContainerRuntimeError, ContainerRuntimeResult};
 
@@ -54,6 +55,16 @@ pub fn unmount(target: &Path) -> ContainerRuntimeResult<()> {
     unsafe {
         let target = CString::new(target.to_str().unwrap()).unwrap();
         wrap_libc_error(libc::umount2(target.as_ptr(), libc::MNT_DETACH))?;
+    }
+
+    Ok(())
+}
+
+pub fn chmod(path: &Path, uid: u64, gid: u64) -> ContainerRuntimeResult<()> {
+    unsafe {
+        let path = path.to_str().unwrap();
+        let path = CString::new(path).unwrap();
+        wrap_libc_error(libc::chown(path.as_ptr(), uid as uid_t, gid as gid_t))?;
     }
 
     Ok(())

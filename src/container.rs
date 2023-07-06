@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use log::{error, info, trace};
 
 use crate::helpers::RemoveDirGuard;
-use crate::linux::{change_dir, exec, mount, pivot_root, unmount, waitpid, wrap_libc_error};
+use crate::linux::{change_dir, chmod, exec, mount, pivot_root, unmount, waitpid, wrap_libc_error};
 use crate::model::{ContainerRuntimeError, ContainerRuntimeResult, User};
 use crate::network::NetworkNamespace;
 use crate::spec::{BindMountSpec, DNSSpec, NetworkSpec, RunContainerSpec};
@@ -94,9 +94,27 @@ fn unpack_image(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResult
         let image_archive = run_container_spec.image_archive();
         let tar_archive = File::open(&image_archive)?;
         let mut tar_archive = tar::Archive::new(tar_archive);
-        tar_archive.set_unpack_xattrs(true);
-        tar_archive.set_preserve_permissions(true);
-        tar_archive.unpack(run_container_spec.image_root())?;
+
+        if !run_container_spec.image_root().exists() {
+            std::fs::create_dir_all(run_container_spec.image_root())?;
+        }
+
+        for entry in tar_archive.entries()? {
+            let mut entry = entry?;
+
+            entry.set_unpack_xattrs(true);
+            entry.set_preserve_permissions(true);
+            entry.unpack_in(run_container_spec.image_root())?;
+
+            if let (Ok(uid), Ok(gid)) = (entry.header().uid(), entry.header().gid()) {
+                let path = entry.path().unwrap().to_path_buf();
+                let path = run_container_spec.image_root().join(path);
+
+                if path.exists() {
+                    chmod(&path, uid, gid)?;
+                }
+            }
+        }
 
         trace!(
             "Unpacked image '{}' at {} (using {})",
