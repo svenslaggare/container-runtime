@@ -29,7 +29,7 @@ pub fn run(run_container_spec: &RunContainerSpec) -> ContainerRuntimeResult<()> 
             let args = args as *const RunContainerSpec;
             if let Err(err) = execute(unsafe { &*args }) {
                 error!("Container execute failed due to: {}", err.to_string());
-                -1
+                1
             } else {
                 0
             }
